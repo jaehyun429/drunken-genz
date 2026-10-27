@@ -33,6 +33,8 @@ cp .env.example .env   # 키 채우기
 
 ## 결정 사항·미결
 
+임의로 정한 것 전체 목록과 검토 우선순위는 [docs/DECISIONS.md](docs/DECISIONS.md).
+
 - 임베딩 입력은 ③ 어땠나(후기)만 (`--embed-fields feeling`). 활동명·유형을 넣으면 섬이 활동 종류별로 갈려서 뺐음. `regions.json` 의 `meta.embed_fields` 에 기록됨.
 - 섬 개수는 8~12 중 실루엣으로 자동 선택(현재 8). 디자인 결정이 오면 `build_map.py --k N`.
 - 섬 이름은 `map/region_names.json` 에 캐시 (멤버 구성이 같으면 다시 짓지 않음).
