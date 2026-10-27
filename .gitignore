@@ -1,0 +1,22 @@
+# 비밀
+.env
+
+# 파이썬
+__pycache__/
+.DS_Store
+
+# 유튜브에서 추출한 텍스트 (팀 결정: 지도 생성 후 삭제, 공개 저장소에 올리지 않음)
+transcripts/
+experiences.csv
+videos.csv
+usage_log.csv
+pipeline.log
+backup_*/
+map_v*/
+map/map.json
+map/index.html
+map/index_users.html
+map/artifact.html
+map/tags_raw.json
+map/user_cards.json
+map/embeddings*.npz

@@ -1,0 +1,6 @@
+requests
+python-dotenv
+google-genai
+youtube-transcript-api
+anthropic
+pydantic

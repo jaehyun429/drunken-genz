@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>경험 지도 1차</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --hair: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --u1: #2a78d6; --u2: #eb6834; --u3: #1baf7a;
+  --region-fill: #e1e0d9; --region-stroke: #c3c2b7; --base-dot: #898781;
+  --chip: #f0efec; --chip-on: #0b0b0b; --chip-on-ink: #fcfcfb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --hair: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --u1: #3987e5; --u2: #d95926; --u3: #199e70;
+    --region-fill: #2c2c2a; --region-stroke: #383835; --base-dot: #898781;
+    --chip: #262624; --chip-on: #f0efec; --chip-on-ink: #0d0d0d;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --hair: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --u1: #3987e5; --u2: #d95926; --u3: #199e70;
+  --region-fill: #2c2c2a; --region-stroke: #383835; --base-dot: #898781;
+  --chip: #262624; --chip-on: #f0efec; --chip-on-ink: #0d0d0d;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { padding: 0 16px 24px; max-width: 1400px; margin: 0 auto; overflow-x: hidden; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; padding: 16px 0 8px; }
+h1 { font-size: 20px; margin: 0; }
+.meta { color: var(--ink-2); font-size: 13px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--hair); margin-bottom: 12px; }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; color: var(--ink-2); font: inherit; cursor: pointer; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 10px; }
+.filters label { color: var(--ink-2); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+select, input[type="search"] { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--axis); border-radius: 6px; padding: 5px 8px; min-height: 32px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--hair); background: var(--chip); color: var(--ink); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; min-height: 28px; }
+.chip[aria-pressed="true"] { background: var(--chip-on); color: var(--chip-on-ink); border-color: var(--chip-on); }
+.toggle { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13px; }
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; }
+@media (max-width: 900px) { .stage { grid-template-columns: 1fr; } }
+svg#map { width: 100%; height: min(78vh, 820px); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: block; touch-action: none; }
+aside#panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; max-height: min(78vh, 820px); overflow: auto; }
+aside h2 { font-size: 16px; margin: 0 0 4px; }
+aside h3 { font-size: 13px; color: var(--ink-2); margin: 14px 0 4px; font-weight: 600; }
+aside p { margin: 4px 0; }
+.kv { color: var(--ink-2); font-size: 13px; }
+.tagline { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag { border: 1px solid var(--hair); background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; cursor: pointer; color: var(--ink); }
+.nb { padding: 6px 0; border-top: 1px solid var(--hair); cursor: pointer; }
+.nb:first-of-type { border-top: 0; }
+.nb .t { font-weight: 600; }
+.nb .s { color: var(--ink-2); font-size: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; color: var(--ink-2); font-size: 13px; align-items: center; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 50%; display: inline-block; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
+.tooltip { position: fixed; z-index: 10; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border); box-shadow: 0 4px 16px rgba(0,0,0,.12); border-radius: 8px; padding: 8px 10px; font-size: 13px; max-width: 320px; }
+.tooltip .h { font-weight: 600; }
+.tooltip .d { color: var(--ink-2); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--surface); border-radius: 10px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+th { color: var(--ink-2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+.table-wrap { overflow: auto; max-height: 80vh; border: 1px solid var(--border); border-radius: 10px; }
+.dot { fill: var(--base-dot); fill-opacity: .55; }
+.dot.dim, .pin.dim, .pinlabel.dim { opacity: .15; }
+.dot.hit, .pin.hit { fill: transparent; cursor: pointer; }
+.dot.sel { fill: var(--ink); fill-opacity: 1; }
+.dot.hl { fill: var(--ink); fill-opacity: .9; }
+.region path { fill: var(--region-fill); fill-opacity: .55; stroke: var(--region-stroke); stroke-width: 1; }
+.region.sel path { stroke: var(--ink); stroke-width: 1.5; fill-opacity: .75; }
+.region text { font-size: 15px; font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+.region text.sub { font-size: 11px; font-weight: 500; fill: var(--ink-2); }
+.edge { stroke: var(--muted); stroke-width: 1; stroke-opacity: .5; fill: none; }
+.edge.all { stroke-opacity: .12; }
+.ulink { stroke-width: 2; stroke-opacity: .75; fill: none; cursor: pointer; }
+.ulink-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+.pin { stroke: var(--surface); stroke-width: 2; cursor: pointer; }
+.pin.sel { stroke: var(--ink); }
+.pinlabel { font-size: 11px; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+.empty { padding: 40px; text-align: center; color: var(--ink-2); }
+.u1 { color: var(--u1); } .u2 { color: var(--u2); } .u3 { color: var(--u3); }
+</style>
+</head>
+<body>
+<header>
+  <h1>경험 지도 1차</h1>
+  <span class="meta" id="meta"></span>
+</header>
+<nav class="tabs" role="tablist">
+  <button role="tab" aria-selected="true" data-tab="map">지도</button>
+  <button role="tab" aria-selected="false" data-tab="list">목록</button>
+  <button role="tab" aria-selected="false" data-tab="regions">섬</button>
+</nav>
+
+<section id="tab-map">
+  <div class="filters">
+    <label>사용자 <select id="f-user"><option value="">전체</option></select></label>
+    <label>섬 <select id="f-region"><option value="">전체</option></select></label>
+    <label>태그 <input type="search" id="f-tag" list="taglist" placeholder="태그 입력" size="12"><datalist id="taglist"></datalist></label>
+    <label class="toggle"><input type="checkbox" id="t-base" checked> 밑지도 카드 점</label>
+    <label class="toggle"><input type="checkbox" id="t-alledges"> 모든 태그 연결(3개 이상 공유)</label>
+    <label class="toggle"><input type="checkbox" id="t-plain"> 설명형 이름</label>
+  </div>
+  <div class="chips" id="type-chips"></div>
+  <div class="stage" style="margin-top:10px">
+    <svg id="map" viewBox="0 0 1000 1000" preserveAspectRatio="xMidYMid meet" aria-label="경험 지도"></svg>
+    <aside id="panel"><p class="kv">섬이나 카드를 클릭하면 여기에 내용이 보입니다. 드래그로 이동, 휠로 확대.</p></aside>
+  </div>
+  <div class="legend" id="legend"></div>
+</section>
+
+<section id="tab-list" hidden>
+  <div class="table-wrap"><table id="list-table"><thead><tr><th>구분</th><th>유형</th><th>활동명</th><th>역할</th><th>섬</th><th>태그</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section id="tab-regions" hidden>
+  <div class="table-wrap"><table id="region-table"><thead><tr><th>#</th><th>감성형 이름</th><th>설명형 이름</th><th>설명</th><th>카드</th><th>대표 태그</th><th>유형 분포</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<div id="tip" class="tooltip" hidden></div>
+
+<script>
+const DATA = /*__MAP_DATA__*/null;
+(function () {
+  if (!DATA) { document.body.insertAdjacentHTML("beforeend", '<p class="empty">map.json 이 주입되지 않았습니다. build_map.py 를 실행하세요.</p>'); return; }
+  const D = DATA;
+  const USER_COLORS = ["var(--u1)", "var(--u2)", "var(--u3)"];
+  const regionById = new Map(D.regions.map(r => [r.id, r]));
+  const cards = new Map();
+  D.cards.forEach(c => cards.set(c.id, { ...c, kind: "base" }));
+  D.users.forEach((u, ui) => u.cards.forEach(c => cards.set(c.id, { ...c, kind: "user", user: u.id, userName: u.name, color: USER_COLORS[ui % 3] })));
+  const baseList = D.cards;
+  const types = [...new Set(baseList.map(c => c.activity_type))].sort();
+  const rname = r => (state.plain ? r.name_plain : r.name_poetic);
+
+  const state = { user: "", region: "", tag: "", types: new Set(), base: true, allEdges: false, plain: false, sel: null, selRegion: null };
+
+  // ---------- 헤더·필터 ----------
+  document.getElementById("meta").textContent =
+    `밑지도 카드 ${D.meta.base_cards}장 · 섬 ${D.meta.k}개 (실루엣 ${D.meta.silhouette}) · 가상 사용자 ${D.users.length}명 · 임베딩 ${D.meta.embedding_model} ${D.meta.embedding_dim}차원`;
+  const selUser = document.getElementById("f-user");
+  D.users.forEach(u => selUser.insertAdjacentHTML("beforeend", `<option value="${u.id}">${u.name}</option>`));
+  const selRegion = document.getElementById("f-region");
+  D.regions.forEach(r => selRegion.insertAdjacentHTML("beforeend", `<option value="${r.id}">${r.name_poetic} (${r.size})</option>`));
+  const dl = document.getElementById("taglist");
+  Object.keys(D.vocab).forEach(t => dl.insertAdjacentHTML("beforeend", `<option value="${t}">`));
+  const chips = document.getElementById("type-chips");
+  types.forEach(t => {
+    const b = document.createElement("button"); b.className = "chip"; b.textContent = t; b.setAttribute("aria-pressed", "false");
+    b.onclick = () => { state.types.has(t) ? state.types.delete(t) : state.types.add(t); b.setAttribute("aria-pressed", state.types.has(t)); render(); };
+    chips.appendChild(b);
+  });
+  selUser.onchange = e => { state.user = e.target.value; render(); };
+  selRegion.onchange = e => { state.region = e.target.value; state.selRegion = e.target.value === "" ? null : +e.target.value; if (state.selRegion !== null) showRegion(state.selRegion); render(); };
+  document.getElementById("f-tag").oninput = e => { state.tag = e.target.value.trim(); render(); };
+  document.getElementById("t-base").onchange = e => { state.base = e.target.checked; render(); };
+  document.getElementById("t-alledges").onchange = e => { state.allEdges = e.target.checked; render(); };
+  document.getElementById("t-plain").onchange = e => { state.plain = e.target.checked; drawRegionLabels(); };
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+    document.querySelectorAll(".tabs button").forEach(x => x.setAttribute("aria-selected", x === b));
+    ["map", "list", "regions"].forEach(t => document.getElementById("tab-" + t).hidden = (t !== b.dataset.tab));
+  });
+
+  // ---------- 범례 ----------
+  const legend = document.getElementById("legend");
+  legend.innerHTML = D.users.map((u, i) => `<span><i class="sw" style="background:${USER_COLORS[i % 3]}"></i>${u.name}</span>`).join("") +
+    `<span><i class="sw" style="background:var(--base-dot);opacity:.6"></i>밑지도 카드(유튜브)</span><span><i class="sw" style="background:var(--region-fill);border-radius:3px"></i>섬(임베딩 군집)</span><span>— 같은 사용자 카드 사이 태그 연결</span>`;
+
+  // ---------- SVG ----------
+  const svg = d3.select("#map");
+  const root = svg.append("g");
+  const gRegion = root.append("g").attr("class", "regions");
+  const gAllEdges = root.append("g");
+  const gEdges = root.append("g");
+  const gBase = root.append("g");
+  const gLinks = root.append("g");
+  const gPins = root.append("g");
+  const gLabels = root.append("g").attr("class", "regions").style("pointer-events", "none");
+  svg.call(d3.zoom().scaleExtent([0.6, 8]).on("zoom", e => root.attr("transform", e.transform)));
+  const tip = document.getElementById("tip");
+  function showTip(ev, html) { tip.innerHTML = html; tip.hidden = false; moveTip(ev); }
+  function moveTip(ev) { const x = Math.min(ev.clientX + 14, window.innerWidth - 330), y = Math.min(ev.clientY + 14, window.innerHeight - 120); tip.style.left = x + "px"; tip.style.top = y + "px"; }
+  function hideTip() { tip.hidden = true; }
+
+  // 섬: 멤버 점의 convex hull 을 바깥으로 살짝 넓혀 부드러운 곡선으로
+  const line = d3.line().curve(d3.curveCatmullRomClosed.alpha(0.6));
+  const regionG = gRegion.selectAll("g").data(D.regions).join("g").attr("class", "region");
+  regionG.append("path").attr("d", r => {
+    let pts = r.member_ids.map(id => { const c = cards.get(id); return [c.x, c.y]; });
+    // 바깥쪽 8% 점은 빼고 hull 을 잡아 섬 모양을 또렷하게 (점 자체는 그대로 그림)
+    const mx = d3.mean(pts, p => p[0]), my = d3.mean(pts, p => p[1]);
+    pts = pts.map(p => [p[0], p[1], Math.hypot(p[0] - mx, p[1] - my)]).sort((a, b) => a[2] - b[2]).slice(0, Math.max(3, Math.ceil(pts.length * 0.92))).map(p => [p[0], p[1]]);
+    let hull = pts.length >= 3 ? d3.polygonHull(pts) : pts;
+    const cx = d3.mean(hull, p => p[0]), cy = d3.mean(hull, p => p[1]);
+    hull = hull.map(([x, y]) => { const dx = x - cx, dy = y - cy, n = Math.hypot(dx, dy) || 1; return [x + dx / n * 22, y + dy / n * 22]; });
+    return line(hull);
+  })
+    .on("mousemove", (ev, r) => showTip(ev, `<div class="h">${r.name_poetic}</div><div>${r.name_plain}</div><div class="d">${r.description}</div><div class="d">카드 ${r.size}장 · ${r.top_tags.join(", ")}</div>`))
+    .on("mouseleave", hideTip)
+    .on("click", (ev, r) => { state.selRegion = r.id; state.sel = null; showRegion(r.id); render(); });
+  function drawRegionLabels() {
+    gLabels.selectAll("*").remove();
+    const lg = gLabels.selectAll("g").data(D.regions).join("g").attr("class", "region");
+    lg.append("text").attr("x", r => r.cx).attr("y", r => r.cy - 4).attr("text-anchor", "middle").text(r => rname(r));
+    lg.append("text").attr("class", "sub").attr("x", r => r.cx).attr("y", r => r.cy + 12).attr("text-anchor", "middle").text(r => `${r.size}장 · ${r.top_tags.slice(0, 3).join(" · ")}`);
+  }
+  drawRegionLabels();
+
+  // 밑지도 카드 점 + 히트 영역
+  const dotG = gBase.selectAll("g").data(baseList).join("g");
+  dotG.append("circle").attr("class", "dot").attr("r", 3.5).attr("cx", c => c.x).attr("cy", c => c.y);
+  dotG.append("circle").attr("class", "dot hit").attr("r", 11).attr("cx", c => c.x).attr("cy", c => c.y)
+    .on("mousemove", (ev, c) => showTip(ev, cardTip(cards.get(c.id))))
+    .on("mouseleave", hideTip)
+    .on("click", (ev, c) => selectCard(c.id));
+
+  // 사용자 핑과 연결
+  const linkData = D.users.flatMap((u, ui) => u.links.map(l => ({ ...l, color: USER_COLORS[ui % 3], user: u.id })));
+  const linkG = gLinks.selectAll("g").data(linkData).join("g");
+  linkG.append("line").attr("class", "ulink").attr("stroke", l => l.color)
+    .attr("x1", l => cards.get(l.s).x).attr("y1", l => cards.get(l.s).y).attr("x2", l => cards.get(l.t).x).attr("y2", l => cards.get(l.t).y);
+  linkG.append("line").attr("class", "ulink-hit")
+    .attr("x1", l => cards.get(l.s).x).attr("y1", l => cards.get(l.s).y).attr("x2", l => cards.get(l.t).x).attr("y2", l => cards.get(l.t).y)
+    .on("mousemove", (ev, l) => showTip(ev, `<div class="h">${cards.get(l.s).activity_name} ↔ ${cards.get(l.t).activity_name}</div><div class="d">공유 태그: ${l.shared.join(", ")}</div>`))
+    .on("mouseleave", hideTip);
+  const userCards = D.users.flatMap(u => u.cards.map(c => cards.get(c.id)));
+  const pinG = gPins.selectAll("g").data(userCards).join("g");
+  pinG.append("circle").attr("class", "pin hit").attr("r", 13).attr("cx", c => c.x).attr("cy", c => c.y)
+    .on("mousemove", (ev, c) => showTip(ev, cardTip(c))).on("mouseleave", hideTip).on("click", (ev, c) => selectCard(c.id));
+  pinG.append("circle").attr("class", "pin").attr("r", 7).attr("fill", c => c.color).attr("cx", c => c.x).attr("cy", c => c.y).style("pointer-events", "none");
+  pinG.append("text").attr("class", "pinlabel").attr("x", c => c.x + 10).attr("y", c => c.y + 4).text(c => c.activity_name.length > 14 ? c.activity_name.slice(0, 14) + "…" : c.activity_name);
+
+  function cardTip(c) {
+    const r = regionById.get(c.region);
+    return `<div class="h">${c.activity_name}</div><div>${c.activity_type} · ${c.role}${c.kind === "user" ? " · " + c.userName : ""}</div><div class="d">${c.summary}</div><div class="d">섬: ${r ? r.name_poetic : "-"} · 태그: ${c.tags.join(", ")}</div>`;
+  }
+
+  // ---------- 선택·패널 ----------
+  function neighborsOf(c) {
+    if (c.kind === "base" && c.neighbors) return c.neighbors.map(n => ({ ...n, card: cards.get(n.id) }));
+    const mine = new Set(c.tags), out = [];
+    baseList.forEach(b => { const sh = b.tags.filter(t => mine.has(t)); if (sh.length) out.push({ id: b.id, w: sh.length, shared: sh, card: cards.get(b.id) }); });
+    return out.sort((a, b) => b.w - a.w).slice(0, 10);
+  }
+  function selectCard(id) { state.sel = id; state.selRegion = null; showCard(cards.get(id)); render(); }
+  const panel = document.getElementById("panel");
+  const esc = s => String(s).replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+  const tagHtml = tags => `<div class="tagline">${tags.map(t => `<span class="tag" data-tag="${esc(t)}">${esc(t)}</span>`).join("")}</div>`;
+  function showCard(c) {
+    const r = regionById.get(c.region);
+    const nbs = neighborsOf(c);
+    panel.innerHTML = `
+      <h2>${esc(c.activity_name)}</h2>
+      <p class="kv">${esc(c.activity_type)} · ${esc(c.role)}${c.kind === "user" ? ` · <b class="${c.user}">${esc(c.userName)}</b>` : " · 밑지도(유튜브)"}</p>
+      <p class="kv">섬: <b>${r ? esc(r.name_poetic) : "-"}</b> (${r ? esc(r.name_plain) : ""})${c.placed_sim ? ` · 최근접 유사도 ${c.placed_sim}` : ""}</p>
+      <p><b>${esc(c.summary)}</b></p>
+      <h3>① 상황</h3><p>${esc(c.situation)}</p>
+      <h3>② 내가 한 일</h3><p>${esc(c.action)}</p>
+      <h3>③ 어땠나</h3><p>${esc(c.feeling)}</p>
+      <h3>태그</h3>${tagHtml(c.tags)}
+      <h3>이어진 활동 (태그 공유 상위 ${nbs.length})</h3>
+      ${nbs.map(n => `<div class="nb" data-id="${n.id}"><div class="t">${esc(n.card.activity_name)}</div><div class="s">${esc(n.card.activity_type)} · 공유 ${n.w}개: ${n.shared.join(", ")}</div></div>`).join("") || '<p class="kv">공유 태그가 있는 카드 없음</p>'}
+      ${c.kind === "base" ? `<h3>출처</h3><p class="kv">${esc(c.title)}</p>` : ""}`;
+    panel.querySelectorAll(".nb").forEach(el => el.onclick = () => selectCard(el.dataset.id));
+    bindTags();
+  }
+  function showRegion(id) {
+    const r = regionById.get(id);
+    const members = r.member_ids.map(i => cards.get(i));
+    panel.innerHTML = `
+      <h2>${esc(r.name_poetic)}</h2>
+      <p class="kv">${esc(r.name_plain)} · 카드 ${r.size}장</p>
+      <p>${esc(r.description)}</p>
+      <h3>대표 태그</h3>${tagHtml(r.top_tags)}
+      <h3>유형 분포</h3><p class="kv">${r.type_mix.map(([t, n]) => `${esc(t)} ${n}`).join(" · ")}</p>
+      <h3>카드</h3>
+      ${members.slice(0, 40).map(c => `<div class="nb" data-id="${c.id}"><div class="t">${esc(c.activity_name)}</div><div class="s">${esc(c.activity_type)} · ${esc(c.summary)}</div></div>`).join("")}
+      ${members.length > 40 ? `<p class="kv">… 외 ${members.length - 40}장</p>` : ""}`;
+    panel.querySelectorAll(".nb").forEach(el => el.onclick = () => selectCard(el.dataset.id));
+    bindTags();
+  }
+  function bindTags() {
+    panel.querySelectorAll(".tag").forEach(el => el.onclick = () => { document.getElementById("f-tag").value = el.dataset.tag; state.tag = el.dataset.tag; render(); });
+  }
+
+  // ---------- 렌더(필터 반영) ----------
+  function visible(c) {
+    if (state.types.size && !state.types.has(c.activity_type)) return false;
+    if (state.tag && !c.tags.includes(state.tag)) return false;
+    if (state.region !== "" && c.region !== +state.region) return false;
+    return true;
+  }
+  function render() {
+    gBase.style("display", state.base ? null : "none");
+    dotG.select(".dot:not(.hit)").attr("class", c => "dot" + (visible(c) ? "" : " dim") + (c.id === state.sel ? " sel" : (state.tag && visible(c) ? " hl" : "")));
+    pinG.attr("class", c => (state.user && c.user !== state.user) || !visible(c) ? "dim" : "");
+    pinG.select(".pin:not(.hit)").attr("class", c => "pin" + (c.id === state.sel ? " sel" : ""));
+    linkG.style("display", l => (state.user && l.user !== state.user) ? "none" : null);
+    regionG.attr("class", r => "region" + (r.id === state.selRegion ? " sel" : ""));
+    // 선택 카드의 태그 연결선
+    gEdges.selectAll("*").remove();
+    if (state.sel) {
+      const c = cards.get(state.sel);
+      gEdges.selectAll("line").data(neighborsOf(c)).join("line").attr("class", "edge")
+        .attr("x1", c.x).attr("y1", c.y).attr("x2", n => n.card.x).attr("y2", n => n.card.y);
+    }
+    gAllEdges.selectAll("*").remove();
+    if (state.allEdges) {
+      gAllEdges.selectAll("line").data(D.edges.filter(e => e.w >= 3)).join("line").attr("class", "edge all")
+        .attr("x1", e => cards.get(e.s).x).attr("y1", e => cards.get(e.s).y).attr("x2", e => cards.get(e.t).x).attr("y2", e => cards.get(e.t).y);
+    }
+  }
+  render();
+
+  // ---------- 표 ----------
+  const lt = document.querySelector("#list-table tbody");
+  const rows = [...userCards.map(c => ({ c, who: c.userName })), ...baseList.map(c => ({ c: cards.get(c.id), who: "밑지도" }))];
+  lt.innerHTML = rows.map(({ c, who }) => `<tr><td>${esc(who)}</td><td>${esc(c.activity_type)}</td><td>${esc(c.activity_name)}</td><td>${esc(c.role)}</td><td>${esc(regionById.get(c.region)?.name_poetic || "")}</td><td>${c.tags.map(esc).join(", ")}</td></tr>`).join("");
+  const rt = document.querySelector("#region-table tbody");
+  rt.innerHTML = D.regions.map(r => `<tr><td class="num">${r.id + 1}</td><td>${esc(r.name_poetic)}</td><td>${esc(r.name_plain)}</td><td>${esc(r.description)}</td><td class="num">${r.size}</td><td>${r.top_tags.map(esc).join(", ")}</td><td>${r.type_mix.slice(0, 4).map(([t, n]) => `${esc(t)} ${n}`).join(" · ")}</td></tr>`).join("");
+})();
+</script>
+</body>
+</html>
