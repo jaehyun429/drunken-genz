@@ -20,3 +20,11 @@ map/artifact.html
 map/tags_raw.json
 map/user_cards.json
 map/embeddings*.npz
+
+# 서버
+server/.venv/
+server/.env
+llm_test/results/
+
+*.egg-info/
+server/.pytest_cache/

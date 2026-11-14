@@ -1,0 +1,26 @@
+[project]
+name = "genz-server"
+version = "0.1.0"
+description = "취했음 청년 — 재현 담당 서버 (질문·탐색, 분석, 알림)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "asyncpg>=0.29",
+  "openai>=1.50",
+  "httpx>=0.27",
+  "pydantic>=2.8",
+  "pydantic-settings>=2.4",
+  "PyJWT[crypto]>=2.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
