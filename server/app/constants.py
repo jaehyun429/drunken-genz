@@ -25,7 +25,10 @@ EMBED_SWEEP_BATCH_LIMIT = 50
 # 관련 경험
 RELATED_MAX = 10
 RELATED_CANDIDATES = 30
-RELATED_MIN_SIMILARITY = 0.35    # BGE-M3 코사인. 실제 데이터로 다시 맞춘다
+RELATED_MIN_SIMILARITY = 0.55    # BGE-M3 코사인. 11/14 유튜브 추출본 481장 실측: 질문만 넣으면 전체 중앙값 0.36~0.41, 상위 0.5~0.58 로
+                                 # 0.35 는 아무것도 못 거름. 질문을 "출처 경험 맥락 + 질문" 으로 넣으면 맞는 카드 0.64~0.70, 중앙값 0.41~0.47
+                                 # → 0.55. 팀 카드 20장 들어오면 다시 본다 (scripts/embed_eval.py)
+RELATED_QUERY_WITH_CONTEXT = True # 관련 경험 검색어 = 출처 경험(활동/장르/역할/한 일) + 질문. 질문만 넣는 것보다 top1 이 +0.1~0.17
 
 # 분석
 ANALYSIS_MIN_RECORDS = 3         # 미만이면 잠김. 회차 기록도 셈

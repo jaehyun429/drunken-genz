@@ -46,6 +46,7 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 - 웹훅 재전송이 없어서 sweep 이 `visibility <> 'private' and embedding is null` 을 5분마다 채움. 지금 돌리기: `POST /v1/internal/sweep`
 - 넣는 글: `app/embedding/text.py` `card_text()` — 활동명·장르·역할·한 일·상황·감정·한 줄·태그 한 문단. 스냅샷(가림본) 우선
 - 백엔드: `EMBED_BACKEND=openai`(GPU 서버 vLLM, `llm_test/serve_embed.sh` 포트 18001) 또는 `local`(맥, sentence-transformers)
+- 11/14 실측(481장): 질문만 임베딩하면 맞는 카드도 0.5대, 전체 중앙값 0.4 → 0.35 는 의미 없음. **출처 경험 맥락 + 질문**으로 넣으면 맞는 카드 0.64~0.70 → 임계값 0.55 로 (`constants.py`)
 - 임계값 확인: `scripts/embed_eval.py` — 10월 유튜브 추출본 481장을 **로컬 DB 에만** 넣고 질문으로 검색해 유사도 분포를 본다. 실제 Supabase 에는 안 넣음
 
 ## 폴더
