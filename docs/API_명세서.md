@@ -2,6 +2,8 @@
 
 v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영
 
+> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목. 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
+
 구조가 두 갈래라 명세도 두 부분입니다.
 
 - **1부 — 앱이 Supabase에 직접 하는 것** — **내 데이터만**. 내 경험, 내 회차, 내 담기·메모, 내 알림 읽음
@@ -99,13 +101,13 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 | photos | text[] | Storage 경로 |
 | pinned | bool | 보관소 상단 고정 |
 | **visibility** | text | `private` / `anonymous` / `profile`. 기본 `private`. **앱이 못 바꿈** |
-| **accept_questions** | bool | 기본 true. 앱이 못 바꿈 — 공개 확정 때(`/publish/confirm`) 고르고, 이후엔 `/publish/settings`로 바꿈 |
+| **accept_questions** | bool | 기본 true. 앱이 못 바꿈 — 공개 확정 때(`/publish/confirm`) 고르고, 이후엔 `/publish/settings`로 바꿈 `[수정 #4]` |
 | **accept_coffeechat** | bool | 기본 false. 앱이 못 바꿈 |
 | **published_snapshot** | jsonb | 공개 시점 복사본. 앱이 못 바꿈 |
 | **masked** | jsonb | 가림 처리된 필드. 앱이 못 바꿈 |
 | **published_at** | timestamptz | 공개 시각. "다시 공개할까요?" 판단용. 앱이 못 바꿈 |
 | **embedding** | vector(1024) | 재현이 웹훅으로 채움. 앱이 못 바꿈 |
-| created_at, updated_at | timestamptz | `updated_at`은 버전 체크용. 수정할 때마다 DB 트리거로 자동 갱신 |
+| created_at, updated_at | timestamptz | `updated_at`은 버전 체크용. 수정할 때마다 DB 트리거로 자동 갱신 `[수정 #5]` |
 
 *v0.1의 `draft_step` 삭제 — 임시저장은 폰에만.*
 
@@ -113,7 +115,7 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 - 본인: select 전부. insert·update는 **굵은 컬럼 제외** (컬럼 권한 REVOKE 또는 트리거로 막음)
 - 남: **원본 테이블 접근 불가.** 공개 카드는 `experience_public` 뷰 또는 FastAPI로만
 
-**뷰 experience_public** — `visibility != 'private'`인 행의 `published_snapshot`·`masked`만 노출. 뷰는 `security_invoker`로 만들어 RLS가 적용되게 하고, 차단 관계 필터는 FastAPI 쿼리에서 건다 (요청한 사용자 id 기준 — 서버는 `service_role`로 읽어서 DB가 누가 보는지 모름). **앱은 이 뷰도 직접 안 읽음** — FastAPI가 읽어서 PublicCard로 내려줌.
+**뷰 experience_public** — `visibility != 'private'`인 행의 `published_snapshot`·`masked`만 노출. 뷰는 `security_invoker`로 만들어 RLS가 적용되게 하고, 차단 관계 필터는 FastAPI 쿼리에서 건다 (요청한 사용자 id 기준 — 서버는 `service_role`로 읽어서 DB가 누가 보는지 모름). **앱은 이 뷰도 직접 안 읽음** — FastAPI가 읽어서 PublicCard로 내려줌. `[수정 #2]`
 
 **앱이 하는 호출**
 ```js
@@ -143,7 +145,7 @@ supabase.from('experience').select('*').eq('user_id', me)
 | extras | jsonb | 접힌 선택 항목 |
 | created_at | timestamptz | |
 
-RLS: 본인만. 저장할 때 `experience_id`도 본인 경험이어야 함. 공개된 경험의 회차는 흐름 요약만 `published_snapshot`에.
+RLS: 본인만. 저장할 때 `experience_id`도 본인 경험이어야 함. 공개된 경험의 회차는 흐름 요약만 `published_snapshot`에. `[수정 #6]`
 
 ### 1.3 question — AI 질문 (재현)
 
@@ -241,26 +243,26 @@ RLS: 본인 전부. **남의 프로필은 FastAPI로만** (열 단위 공개라 
 | type | text | 조건 / 결정 이유 / 해본 소감 |
 | question | text | 10~100자 |
 | answer | text | nullable |
-| status | text | `waiting`(답변 대기) / `answered`(답변 완료) / `no_answer`(답변 없음). 기본 `waiting` |
+| status | text | `waiting`(답변 대기) / `answered`(답변 완료) / `no_answer`(답변 없음). 기본 `waiting` `[수정 #3]` |
 | answered_at | timestamptz | |
 | created_at | timestamptz | |
 
 *v0.1의 `helpful_count` 삭제 — 숫자 노출 여부 지은 확인 전까지 서버 집계만.*
 
-답변 없이 14일 지나면 **삭제하지 않고** cron이 `status`를 `no_answer`로 바꿈 → 앱은 "답변이 없었어요"로 접어서 표시하고, 질문자에게 비슷한 경험을 추천 (기능명세서 POL-12, QA-01-②). `TODO(기획)`: 추천을 어디에 어떻게 보여줄지.
+답변 없이 14일 지나면 **삭제하지 않고** cron이 `status`를 `no_answer`로 바꿈 → 앱은 "답변이 없었어요"로 접어서 표시하고, 질문자에게 비슷한 경험을 추천 (기능명세서 POL-12, QA-01-②). `TODO(기획)`: 추천을 어디에 어떻게 보여줄지. `[수정 #3]`
 
 ### 1.10 helpful_reason (소윤)
 
 | 컬럼 | 타입 |
 |---|---|
-| id, experience_id, qa_id, user_id | uuid |
+| id, experience_id, qa_id, user_id | uuid `[수정 #9]` |
 | chip | text — 기준이 생겼어요 / 조건을 알게 됐어요 / 다음 행동이 보여요 |
 | text | text, 80자 |
 | hidden_by_owner | bool |
 
-유니크 키는 **(experience_id, user_id)** — 1카드 1회, 점수·별점 없음, 부정 평가 불가 (기능명세서 POL-14).
+유니크 키는 **(experience_id, user_id)** — 1카드 1회, 점수·별점 없음, 부정 평가 불가 (기능명세서 POL-14). `[수정 #9]`
 
-### 1.11 reaction (재현)
+### 1.11 reaction (재현) `[수정 #1]`
 
 | 컬럼 | 타입 |
 |---|---|
@@ -344,13 +346,13 @@ RLS: 본인 전부. **남의 프로필은 FastAPI로만** (열 단위 공개라 
 ```json
 { "experience_id": "uuid", "visibility": "anonymous", "mask_decisions": { "place": "accept", "role": "keep" }, "accept_questions": true, "preview_hash": "..." }
 ```
-- `accept_questions`: 질문 받기 스위치. 생략하면 true (기능명세서 PUB-01-②)
+- `accept_questions`: 질문 받기 스위치. 생략하면 true (기능명세서 PUB-01-②) `[수정 #4]`
 - 서버가 익명 규칙 **재검사**. 결과가 preview와 다르면 409 `PUBLISH_PREVIEW_STALE` + 새 preview 반환
 - 통과하면 `published_snapshot`·`masked`·`visibility`·`published_at` 갱신, 임베딩 웹훅 트리거
 - 멱등키는 안 함 (11/09). 앱은 재진입 시 서버 상태로 화면을 그림
 - `profile`로 올릴 때 `school_verified = false`면 403 `PROFILE_VERIFICATION_REQUIRED`
 
-#### POST /publish/settings — 공개 후 설정 변경
+#### POST /publish/settings — 공개 후 설정 변경 `[수정 #4]`
 ```json
 { "experience_id": "uuid", "accept_questions": false }
 ```
@@ -371,14 +373,14 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```
 정규식. LLM 안 씀.
 
-### 탐색·카드 (재현) [신규 대부분]
+### 탐색·카드 (재현) [신규 대부분] `[수정 #1]`
 
 #### GET /cards?genre=&role_filter=&cursor=
 **공개 카드 목록.** 탐색 탭 두 번째 흐름 — v0.1에 없던 것.
 ```json
 { "items": [ PublicCard, ... ], "next_cursor": "..." | null }
 ```
-- `experience_public` 뷰에서. 차단·본인 제외 (차단은 FastAPI 쿼리에서 요청자 id로 거름)
+- `experience_public` 뷰에서. 차단·본인 제외 (차단은 FastAPI 쿼리에서 요청자 id로 거름) `[수정 #2]`
 - `role_filter`: `same` / `different` — 내 최근 경험 역할 기준
 - cursor 방식, 20개씩
 
@@ -393,6 +395,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 }
 ```
 비공개·차단이면 404 `NOT_FOUND`.
+- 위 `qa[]`에 `status` 추가 `[수정 #3]`
 
 #### POST /related — 관련 경험 (재현)
 ```json
@@ -426,8 +429,8 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```json
 { "answer": "..." }
 ```
-질문자에게 `answer` 알림. 성공 시 `status = answered`.
-`TODO(기획)`: 답변 500자·24시간 내 수정 가능 규칙은 기능명세서(POL-12, QA-01, QA-02)에 없음 — 지은 확인 전까지 구현 보류.
+~~500자. 24시간 내 수정 가능.~~ 질문자에게 `answer` 알림. 성공 시 `status = answered`. `[수정 #8]`
+`TODO(기획)`: 답변 500자·24시간 내 수정 가능 규칙은 기능명세서(POL-12, QA-01, QA-02)에 없음 — 지은 확인 전까지 구현 보류. `[수정 #8]`
 
 #### POST /qa/{id}/helpful
 ```json
@@ -490,7 +493,7 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 #### GET /notifications?cursor=
 앱이 Supabase 직접 읽어도 되지만 묶음 표시를 서버에서 하려면 여기로. 결정은 재현.
 
-푸시 토큰 등록·삭제는 FastAPI 엔드포인트 없음 — 앱이 `push_device` 테이블에 직접 (1.6).
+~~`POST /push/devices`, `DELETE /push/devices/{device_id}`~~ 삭제 — 푸시 토큰 등록·삭제는 FastAPI 엔드포인트 없음 — 앱이 `push_device` 테이블에 직접 (1.6). `[수정 #7]`
 
 ---
 
@@ -499,7 +502,7 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 - 경험 공개 확정 시 임베딩 생성 (confirm 안에서 동기 처리하거나 웹훅)
 - 새 공개 카드 → `saved = true`인 질문들과 매칭 → `related_found` 알림
 - 리마인드 푸시 cron (Asia/Seoul 기준, 방해 금지 제외)
-- 30일 지난 알림 삭제, 14일 미답변 Q&A를 `no_answer`로 변경 (삭제 안 함)
+- 30일 지난 알림 삭제, 14일 미답변 Q&A를 `no_answer`로 변경 (삭제 안 함) `[수정 #3]`
 - Expo 전송 결과 `DeviceNotRegistered` → 토큰 삭제
 - *v0.1의 "임시저장 2일째 알림" 삭제 — 앱 로컬 알림으로*
 
@@ -528,9 +531,10 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 | 공개 → 비공개 시 Q&A 데이터 보존 | 지은 |
 | `helpful_count` 화면 노출 | 지은 |
 | 회차 기록 감정 칩 개수 | 지은 |
+| ~~helpful_reason 유니크 단위 (카드 vs Q&A)~~ → 카드당 1번 확정 (POL-14) | 지은 `[수정 #9]` |
 | 다른 폰 이어쓰기 필요 여부 | 지은 |
-| Q&A 답변 500자·24시간 수정 규칙 출처 | 지은 |
-| 14일 미답변 Q&A의 비슷한 경험 추천 표시 방식 | 지은 |
+| Q&A 답변 500자·24시간 수정 규칙 출처 | 지은 `[수정 #8]` |
+| 14일 미답변 Q&A의 비슷한 경험 추천 표시 방식 | 지은 `[수정 #3]` |
 
 ## 변경 이력
 
