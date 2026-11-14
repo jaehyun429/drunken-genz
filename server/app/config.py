@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     llm_disable_thinking: bool = True
     llm_deterministic: bool = True    # temperature 0 + seed 0 전송. vLLM 은 받지만 Gemini·Anthropic 호환 API 는 400 → 대체 API 쓸 땐 0
 
+    # 임베딩 — BGE-M3 고정 (CLAUDE.md 2장). openai = vLLM /v1/embeddings, local = 이 프로세스 안에서 sentence-transformers
+    embed_backend: str = "openai"
+    embed_base_url: str = "http://localhost:18001/v1"
+    embed_model: str = "BAAI/bge-m3"
+    embed_api_key: str = "x"
+    embed_timeout_s: float = 30.0
+
 
 @lru_cache
 def settings() -> Settings:

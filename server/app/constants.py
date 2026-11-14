@@ -16,6 +16,12 @@ SWEEP_INTERVAL_S = 300           # 5분마다
 SWEEP_MIN_AGE_S = 60             # 저장 직후 웹훅이 오는 중일 수 있으니 1분은 기다림
 SWEEP_BATCH_LIMIT = 20           # 한 번에 최대 몇 개
 
+# 임베딩 (공개된 경험만. 모델 BGE-M3 1024차원 코사인 — 바꾸면 전부 다시 돌려야 해서 안 바꿈)
+EMBED_DIM = 1024
+EMBED_TEXT_MAX_CHARS = 2000      # 한 문단 상한. BGE-M3 는 8192 토큰까지 받지만 카드는 이보다 훨씬 짧다
+EMBED_SWEEP_MIN_AGE_S = 60       # 공개 직후 웹훅이 오는 중일 수 있으니 1분은 기다림
+EMBED_SWEEP_BATCH_LIMIT = 50
+
 # 관련 경험
 RELATED_MAX = 10
 RELATED_CANDIDATES = 30

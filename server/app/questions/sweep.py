@@ -7,6 +7,7 @@ from datetime import timedelta
 from .. import db
 from ..constants import SWEEP_INTERVAL_S, SWEEP_MIN_AGE_S, SWEEP_BATCH_LIMIT
 from . import service
+from ..embedding.service import sweep_missing_embeddings
 
 log = logging.getLogger("sweep")
 
@@ -35,7 +36,8 @@ async def run_forever():
     """lifespan 에서 띄우는 루프. 서버 시작 직후가 아니라 한 주기 뒤부터."""
     while True:
         await asyncio.sleep(SWEEP_INTERVAL_S)
-        try:
-            await sweep_missing_question_batches()
-        except Exception:  # noqa: BLE001 — 루프는 죽지 않는다
-            log.exception("sweep 실패")
+        for job in (sweep_missing_question_batches, sweep_missing_embeddings):
+            try:
+                await job()
+            except Exception:  # noqa: BLE001 — 루프는 죽지 않는다
+                log.exception("sweep 실패: %s", job.__name__)

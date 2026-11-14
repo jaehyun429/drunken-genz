@@ -8,6 +8,7 @@ from .. import db
 from ..auth import current_user_id, verify_webhook_secret
 from ..errors import AppError
 from . import service, sweep
+from ..embedding.service import sweep_missing_embeddings
 
 router = APIRouter(tags=["questions"])
 
@@ -78,4 +79,5 @@ async def retry(body: RegenerateIn, bg: BackgroundTasks, user_id: uuid.UUID = De
 async def sweep_now():
     """주기 점검을 지금 돌림 (운영·테스트용). 평소엔 서버가 알아서 돈다."""
     n = await sweep.sweep_missing_question_batches()
-    return {"processed": n}
+    m = await sweep_missing_embeddings()
+    return {"processed": n, "embedded": m}
