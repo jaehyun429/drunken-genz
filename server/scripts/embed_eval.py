@@ -57,12 +57,17 @@ async def load():
     print()
     async with conn.transaction():
         for c, v in zip(cards, vecs):
-            await conn.execute(
+            eid = await conn.fetchval(
                 "insert into experience (user_id, activity_name, genre, role, period_start, did_chips, did_notes, "
                 " situation_chips, emotion_chips, one_liner, visibility, published_at, published_snapshot, embedding) "
-                "values ($1, $2, $3, $4, '2025-01', '{}', $5::jsonb, $6, $7, $8, 'anonymous', now(), $9::jsonb, $10::vector)",
+                "values ($1, $2, $3, $4, '2025-01', '{}', $5::jsonb, $6, $7, $8, 'anonymous', now(), $9::jsonb, $10::vector) "
+                "returning id",
                 TAG_USER, c["activity_name"][:40], c["genre"], c["role"][:20], json.dumps(c["did_notes"]),
                 c["situation_chips"], c["emotion_chips"], c["one_liner"], json.dumps(c, ensure_ascii=False), to_pg(v))
+            # 평가용 카드는 질문 생성 대상이 아니다 — 질문 sweep 이 LLM 을 481번 부르지 않게 '끝난' batch 를 하나 깔아둔다
+            await conn.execute(
+                "insert into question_batch (experience_id, user_id, generation, trigger, input_hash, status, finished_at) "
+                "values ($1, $2, 1, 'save', 'eval', 'done', now())", eid, TAG_USER)
     await conn.close()
     print(f"로컬 DB 에 평가용 카드 {len(cards)}장 넣음 ({time.time() - t0:.0f}s)")
 

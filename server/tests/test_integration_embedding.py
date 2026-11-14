@@ -41,6 +41,10 @@ def env(monkeypatch):
     monkeypatch.setattr(ec, "embed", fake_embed)
     import app.embedding.service as es
     monkeypatch.setattr(es, "embed_one", lambda t: _one(t))
+    # /internal/sweep 은 질문 sweep 도 돌린다. 여기선 LLM 이 없으니(3회 재시도 × 수십 건 = 분 단위) 끈다
+    import app.questions.sweep as qs
+    async def _no_question_sweep(): return 0
+    monkeypatch.setattr(qs, "sweep_missing_question_batches", _no_question_sweep)
     from app.main import app
     with TestClient(app) as client:
         yield client
@@ -75,7 +79,7 @@ async def _embedding_set(eid, timeout=5.0):
         await conn.close()
 
 
-async def _match(query_text, me, k=10):
+async def _match(query_text, me, k=5000):   # 로컬 DB 에 평가용 카드(embed_eval.py) 수백 장이 있어도 묻히지 않게 크게
     from app.embedding.client import to_pg
     conn = await asyncpg.connect(DB)
     try:
