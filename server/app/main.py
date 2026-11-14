@@ -8,6 +8,7 @@ from . import db
 from .errors import AppError, app_error_handler, unhandled_error_handler
 from .questions.router import router as questions_router
 from .embedding.router import router as embedding_router
+from .related.router import router as related_router
 from .questions import sweep
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -28,6 +29,7 @@ app.add_exception_handler(Exception, unhandled_error_handler)
 # 베이스 URL 은 https://api.<도메인>/v1 (API 명세 2부)
 app.include_router(questions_router, prefix="/v1")
 app.include_router(embedding_router, prefix="/v1")
+app.include_router(related_router, prefix="/v1")
 
 
 @app.get("/v1/health")

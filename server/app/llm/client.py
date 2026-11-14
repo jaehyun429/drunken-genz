@@ -64,14 +64,15 @@ def classify(exc: Exception) -> type[Exception]:
     return LLMModelError
 
 
-async def complete_json(system: str, user: str, schema: dict, *, max_tokens: int = LLM_MAX_TOKENS) -> LLMResult:
-    """JSON 스키마 강제 + temperature 0 + 재시도 3회. 마지막 실패는 분류된 예외로 올린다."""
+async def complete_json(system: str, user: str, schema: dict, *, max_tokens: int = LLM_MAX_TOKENS,
+                        max_attempts: int = LLM_MAX_ATTEMPTS) -> LLMResult:
+    """JSON 스키마 강제 + temperature 0 + 재시도(기본 3회). 마지막 실패는 분류된 예외로 올린다."""
     s = settings()
     extra: dict = {}
     if s.llm_disable_thinking:
         extra["chat_template_kwargs"] = {"enable_thinking": False}
     last: Exception | None = None
-    for attempt in range(1, LLM_MAX_ATTEMPTS + 1):
+    for attempt in range(1, max_attempts + 1):
         try:
             kwargs: dict = {"temperature": 0, "seed": 0} if s.llm_deterministic else {}
             resp = await client().chat.completions.create(
@@ -96,8 +97,8 @@ async def complete_json(system: str, user: str, schema: dict, *, max_tokens: int
         except Exception as e:  # noqa: BLE001 — 분류해서 다시 던짐
             last = e
             kind = classify(e)
-            log.warning("LLM 실패 %d/%d %s: %s", attempt, LLM_MAX_ATTEMPTS, kind.__name__, type(e).__name__)
-            if attempt < LLM_MAX_ATTEMPTS:
+            log.warning("LLM 실패 %d/%d %s: %s", attempt, max_attempts, kind.__name__, type(e).__name__)
+            if attempt < max_attempts:
                 await asyncio.sleep(LLM_RETRY_BACKOFF_S[min(attempt - 1, len(LLM_RETRY_BACKOFF_S) - 1)])
     assert last is not None
     raise classify(last)(f"{type(last).__name__}: {str(last)[:200]}") from last

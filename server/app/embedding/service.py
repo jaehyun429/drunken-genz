@@ -34,8 +34,13 @@ async def embed_experience(conn: asyncpg.Connection, experience_id: uuid.UUID) -
 
 
 async def after_embedded(conn: asyncpg.Connection, experience_id: uuid.UUID, owner_id: uuid.UUID) -> None:
-    """새 공개 카드가 생긴 뒤: notify_on_related 켜진 질문과 맞춰보기. 4단계(관련 경험)에서 채운다."""
-    # TODO(4단계): related.on_new_card(conn, experience_id, owner_id) — 맞는 질문의 캐시 갱신 + related_new 켜기
+    """새 공개 카드가 생긴 뒤: notify_on_related 켜진 질문과 맞춰보기 (CLAUDE.local.md 8장).
+       여기서 실패해도 임베딩은 이미 저장됐으니 밖으로 던지지 않는다."""
+    from ..related.service import on_new_card   # related 가 embedding.client 를 쓰므로 여기서 import
+    try:
+        await on_new_card(conn, experience_id, owner_id)
+    except Exception:  # noqa: BLE001
+        log.exception("새 카드 %s 관련 경험 맞춰보기 실패", experience_id)
 
 
 async def unpublish_experience(conn: asyncpg.Connection, experience_id: uuid.UUID) -> int:

@@ -29,6 +29,10 @@ RELATED_MIN_SIMILARITY = 0.55    # BGE-M3 코사인. 11/14 유튜브 추출본 4
                                  # 0.35 는 아무것도 못 거름. 질문을 "출처 경험 맥락 + 질문" 으로 넣으면 맞는 카드 0.64~0.70, 중앙값 0.41~0.47
                                  # → 0.55. 팀 카드 20장 들어오면 다시 본다 (scripts/embed_eval.py)
 RELATED_QUERY_WITH_CONTEXT = True # 관련 경험 검색어 = 출처 경험(활동/장르/역할/한 일) + 질문. 질문만 넣는 것보다 top1 이 +0.1~0.17
+RELATED_FILTER_CANDIDATES = 100  # filter 가 all 이 아니면 걸러낸 뒤에도 30개가 남게 넉넉히 뽑는다
+RELATED_REASON_MAX = 60          # "왜 관련 있는지" 한 줄 상한. 넘으면 reason 만 null (카드는 남김). 결정: 명세에 길이 없음
+RELATED_LLM_ATTEMPTS = 2         # /related 는 앱이 기다리는 호출이라 질문 생성(3회)보다 덜 재시도. 실패하면 유사도 순으로 내려주고 캐시 안 함
+RELATED_NOTIFY_RECHECK_LIMIT = 200  # 새 공개 카드 하나당 맞춰볼 notify_on_related 질문 수 상한
 
 # 분석
 ANALYSIS_MIN_RECORDS = 3         # 미만이면 잠김. 회차 기록도 셈

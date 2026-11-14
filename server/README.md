@@ -49,6 +49,17 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 - 11/14 실측(481장): 질문만 임베딩하면 맞는 카드도 0.5대, 전체 중앙값 0.4 → 0.35 는 의미 없음. **출처 경험 맥락 + 질문**으로 넣으면 맞는 카드 0.64~0.70 → 임계값 0.55 로 (`constants.py`)
 - 임계값 확인: `scripts/embed_eval.py` — 10월 유튜브 추출본 481장을 **로컬 DB 에만** 넣고 질문으로 검색해 유사도 분포를 본다. 실제 Supabase 에는 안 넣음
 
+## 관련 경험 (4단계)
+- `POST /v1/related` `{question_id, filter}` → `{items: [{card: PublicCard, reason}]}`. 최대 10개, 없으면 `[]`
+- 흐름: 검색어(출처 경험 맥락 + 질문) 임베딩 → `match_public_cards()` 후보 30개(필터가 있으면 100개 뽑아 거름) → LLM 재정렬 + 한 줄 이유(`app/llm/prompts/related_v1.md`) → `related_cache` 저장
+- LLM 은 관련 없는 후보를 뺄 수 있다. 이유가 길거나(60자) 평가·연락처가 섞이면 이유만 `null` 로 두고 카드는 남긴다
+- LLM 이 실패하면 유사도 순으로 내려주고 **캐시하지 않는다** (다음에 열 때 다시 시도). 임베딩 서버가 죽으면 `AI_UNAVAILABLE`
+- 캐시에서 꺼낼 때마다 다시 거른다: 차단·내 것은 빼기만, 뷰에서 사라진 카드(비공개·삭제)가 있으면 다시 계산
+- 새 공개 카드가 임베딩되면 `notify_on_related` 켜진 질문 중 결과가 비어 있던 것만 맞춰보고, 생기면 `related_new` 를 켠다 (알림은 6단계에서 오전 9시 묶음)
+- 읽는 건 `experience_public` 뷰뿐. PublicCard 는 `app/cards/public.py` 한 곳에서 만든다 (7단계 `/cards` 도 같이 씀)
+- 끝까지 돌려보기(로컬 전용, 평가용 카드 481장 필요): `EMBED_BACKEND=local python -m scripts.demo_related [f05 ...] [--filter same_role]`, 정리는 `python -m scripts.demo_related clear`
+- 11/14 실측(Haiku 재정렬): 질문 6개에 3~5장씩, 첫 조회 4~6초(모델 로드 제외), 다시 열기 1~4ms
+
 ## 폴더
 ```
 app/config.py        환경변수        app/llm/client.py           LLM 호출·재시도·실패 분류
@@ -57,6 +68,8 @@ app/errors.py        에러 형식       app/questions/prompt.py     경험 → 
 app/auth.py          JWT·웹훅 비밀   app/questions/filters.py    응답 후 걸러내기
 app/db.py            asyncpg 풀      app/questions/service.py    batch·저장
                                      app/questions/router.py     엔드포인트
+app/cards/public.py  PublicCard 조립   app/related/rerank.py       LLM 재정렬·이유 걸러내기
+app/embedding/       임베딩·웹훅·sweep  app/related/service.py      후보·캐시·새 카드 재계산
 ```
 
 ## Supabase 에 붙일 때 (소윤과 함께)
