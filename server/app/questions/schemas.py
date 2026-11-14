@@ -67,19 +67,21 @@ OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "questions": {
-            "type": "array", "minItems": 0, "maxItems": 6,
+            "type": "array",  # 개수 상한은 filters 에서 자름 (Anthropic 호환 API 가 maxItems 를 거부)
             "items": {
                 "type": "object",
                 "properties": {
-                    "type": {"enum": ["try_next", "imagine"]},
-                    "axis": {"enum": list(AXES_TRY + AXES_IMAGINE)},
+                    "type": {"type": "string", "enum": ["try_next", "imagine"]},
+                    "axis": {"type": "string", "enum": list(AXES_TRY + AXES_IMAGINE)},
                     "text": {"type": "string"},
                     "source": {"type": "string"},
                     "done_experience_id": {"type": ["string", "null"]},
                 },
                 "required": ["type", "axis", "text", "source", "done_experience_id"],
+                "additionalProperties": False,
             },
         }
     },
     "required": ["questions"],
+    "additionalProperties": False,
 }

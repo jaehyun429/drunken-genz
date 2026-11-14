@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llm_api_key: str = "x"
     llm_timeout_s: float = 20.0
     llm_disable_thinking: bool = True
+    llm_deterministic: bool = True    # temperature 0 + seed 0 전송. vLLM 은 받지만 Gemini·Anthropic 호환 API 는 400 → 대체 API 쓸 땐 0
 
 
 @lru_cache

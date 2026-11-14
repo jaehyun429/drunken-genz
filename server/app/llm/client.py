@@ -10,7 +10,7 @@ import openai
 from openai import AsyncOpenAI
 
 from ..config import settings
-from ..constants import LLM_MAX_ATTEMPTS, LLM_RETRY_BACKOFF_S
+from ..constants import LLM_MAX_ATTEMPTS, LLM_MAX_TOKENS, LLM_RETRY_BACKOFF_S
 
 log = logging.getLogger("llm")
 PROMPT_DIR = Path(__file__).parent / "prompts"
@@ -64,7 +64,7 @@ def classify(exc: Exception) -> type[Exception]:
     return LLMModelError
 
 
-async def complete_json(system: str, user: str, schema: dict, *, max_tokens: int = 1024) -> LLMResult:
+async def complete_json(system: str, user: str, schema: dict, *, max_tokens: int = LLM_MAX_TOKENS) -> LLMResult:
     """JSON 스키마 강제 + temperature 0 + 재시도 3회. 마지막 실패는 분류된 예외로 올린다."""
     s = settings()
     extra: dict = {}
@@ -73,14 +73,20 @@ async def complete_json(system: str, user: str, schema: dict, *, max_tokens: int
     last: Exception | None = None
     for attempt in range(1, LLM_MAX_ATTEMPTS + 1):
         try:
+            kwargs: dict = {"temperature": 0, "seed": 0} if s.llm_deterministic else {}
             resp = await client().chat.completions.create(
-                model=s.llm_model, temperature=0, seed=0, max_tokens=max_tokens,
+                model=s.llm_model, max_tokens=max_tokens, **kwargs,
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                response_format={"type": "json_schema", "json_schema": {"name": "out", "schema": schema}},
+                response_format={"type": "json_schema", "json_schema": {"name": "out", "strict": True, "schema": schema}},
                 extra_body=extra,
             )
             raw = resp.choices[0].message.content or ""
-            data = json.loads(raw)
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                # 사용자 글 원문이 섞일 수 있어 앞부분 길이만 남긴다
+                log.warning("LLM 응답이 JSON 아님 finish=%s len=%d", resp.choices[0].finish_reason, len(raw))
+                raise
             if not isinstance(data, dict):
                 raise ValueError("JSON 최상위가 객체가 아님")
             u = resp.usage
