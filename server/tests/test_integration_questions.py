@@ -173,3 +173,24 @@ def test_app_cannot_change_question_text(env):
         return ok, denied
     ok, denied = asyncio.run(run())
     assert ok.startswith("UPDATE") and denied
+
+
+def test_sweep_picks_up_missed_webhook(env, monkeypatch):
+    """웹훅이 안 왔어도 sweep 이 질문을 만든다. 저장 직후(1분 안)인 건 건너뛴다."""
+    client, fake = env
+    uid, eid = asyncio.run(_seed())
+    client.post("/v1/internal/sweep", headers={"X-Webhook-Secret": "s3cret"})
+    assert asyncio.run(_wait_batch(eid, timeout=0.3)) is None   # 방금 저장한 건 아직 안 건드림 (다른 테스트가 남긴 경험은 처리될 수 있음)
+
+    async def age():
+        conn = await asyncpg.connect(DB)
+        await conn.execute("update experience set created_at = now() - interval '5 minutes' where id = $1", eid)
+        await conn.close()
+    asyncio.run(age())
+    r = client.post("/v1/internal/sweep", headers={"X-Webhook-Secret": "s3cret"})
+    assert r.json()["processed"] >= 1
+    batch = asyncio.run(_wait_batch(eid))
+    assert batch["status"] == "done" and batch["trigger"] == "save"
+    # 두 번째 sweep 은 같은 경험을 다시 안 잡음
+    client.post("/v1/internal/sweep", headers={"X-Webhook-Secret": "s3cret"})
+    assert asyncio.run(_wait_batch(eid))["generation"] == 1

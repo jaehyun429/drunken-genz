@@ -10,6 +10,11 @@ LLM_MAX_ATTEMPTS = 3             # 서버 자동 재시도. 하루 횟수에 안
 LLM_RETRY_BACKOFF_S = (1.0, 2.0) # 1차 실패 후 1초, 2차 실패 후 2초
 QUESTION_DEDUPE_SIMILARITY = 0.5 # 문자 2-gram 자카드. 이상이면 겹치는 질문으로 보고 뒤의 것을 버림
 
+# 주기 점검 (DB 웹훅은 실패해도 재전송이 없어서 서버가 빈 곳을 채움)
+SWEEP_INTERVAL_S = 300           # 5분마다
+SWEEP_MIN_AGE_S = 60             # 저장 직후 웹훅이 오는 중일 수 있으니 1분은 기다림
+SWEEP_BATCH_LIMIT = 20           # 한 번에 최대 몇 개
+
 # 관련 경험
 RELATED_MAX = 10
 RELATED_CANDIDATES = 30

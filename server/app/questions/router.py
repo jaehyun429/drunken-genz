@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from .. import db
 from ..auth import current_user_id, verify_webhook_secret
 from ..errors import AppError
-from . import service
+from . import service, sweep
 
 router = APIRouter(tags=["questions"])
 
@@ -72,3 +72,10 @@ async def retry(body: RegenerateIn, bg: BackgroundTasks, user_id: uuid.UUID = De
                            "finished_at = null where id = $1", last["id"])
     bg.add_task(service.run_batch, last["id"])
     return {"batch_id": str(last["id"]), "generation": last["generation"], "status": "pending"}
+
+
+@router.post("/internal/sweep", dependencies=[Depends(verify_webhook_secret)])
+async def sweep_now():
+    """주기 점검을 지금 돌림 (운영·테스트용). 평소엔 서버가 알아서 돈다."""
+    n = await sweep.sweep_missing_question_batches()
+    return {"processed": n}

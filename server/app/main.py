@@ -1,4 +1,5 @@
 """FastAPI 진입점. uvicorn app.main:app --reload"""
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -6,6 +7,7 @@ from fastapi import FastAPI
 from . import db
 from .errors import AppError, app_error_handler, unhandled_error_handler
 from .questions.router import router as questions_router
+from .questions import sweep
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -13,7 +15,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await db.connect()
+    task = asyncio.create_task(sweep.run_forever())   # 웹훅 놓친 경험 주기 점검
     yield
+    task.cancel()
     await db.close()
 
 
