@@ -87,3 +87,9 @@ cp .env.example .env            # LLM_BASE_URL=http://localhost:18000/v1 그대�
 .venv/bin/python -m scripts.demo_questions
 ```
 vLLM 이 떠 있어야 함: `bash ../llm_test/serve.sh qwen27` (PORT=18000).
+
+기록을 어디까지 채웠느냐에 따른 질문 개수 비교 (DB 필요 없음. Qwen 은 temperature 0 이라 반복은 1번이면 됨):
+```bash
+LLM_TIMEOUT_S=60 .venv/bin/python -m scripts.eval_record_depth 1 depth_qwen.json
+```
+11/14 Haiku 3회 평균: 필수만 2.06개 → 전부 2.89개. 개수보다 질문 출처(기간·활동명 vs 상황·한 줄) 차이가 큼.
