@@ -5,6 +5,7 @@ import app.questions.generate as gen
 from app.constants import QUESTION_MIN
 from app.llm.client import LLMResult, LLMConnectionError, LLMModelError
 from app.questions.schemas import ExperienceInput
+from app.questions import filters
 
 E = ExperienceInput(id="e1", activity_name="카페 알바", genre="알바", role="바리스타", period_start="2026-01",
                     did_chips=["고객 응대", "판매"], situation_chips=["결과가 숫자로 평가됐다"],
@@ -56,7 +57,22 @@ def test_reasks_once_with_dropped_reason_and_fills_to_minimum(monkeypatch):
 def test_reask_answer_that_repeats_or_breaks_rules_is_dropped(monkeypatch):
     fake, out = run(monkeypatch, [GOOD1, BAD], [GOOD1, BAD])
     assert len(fake.users) == 2 and [x.text for x in out.questions] == [GOOD1["text"]]
-    assert [d[1] for d in out.dropped] == ["다른 사람의 행동", "겹치는 질문", "다른 사람의 행동"]
+    assert [d[1] for d in out.dropped] == ["다른 사람의 행동", "버린 질문을 다시 냄", "겹치는 질문"]
+
+
+def test_reask_answer_that_rewords_a_dropped_question_is_dropped(monkeypatch):
+    """규칙에 걸려 버린 질문을 규칙만 피한 꼴로 다시 내면 받지 않는다 (11/15 Qwen f02)."""
+    reworded = q("매출이 아닌 다른 주제가 오가는 가게였다면, 지치는 느낌이 덜했을지?", type="imagine", axis="external", source="한 줄")
+    assert filters.apply([reworded], set())[1] == [], "이 문장만 보면 규칙에 안 걸린다"
+    fake, out = run(monkeypatch, [GOOD1, BAD], [reworded])
+    assert [x.text for x in out.questions] == [GOOD1["text"]] and out.reasks == 1
+    assert out.dropped[-1] == (reworded["text"], "버린 질문을 다시 냄")
+
+
+def test_reask_may_fix_a_question_dropped_for_format(monkeypatch):
+    no_source = {**GOOD2, "source": ""}
+    fake, out = run(monkeypatch, [GOOD1, no_source], [GOOD2])
+    assert [x.text for x in out.questions] == [GOOD1["text"], GOOD2["text"]]
 
 
 def test_reask_failure_keeps_what_we_have(monkeypatch):
@@ -94,4 +110,6 @@ def test_same_fact_drop_triggers_a_reask(monkeypatch):
     monkeypatch.setattr(gen, "complete_json", fake)
     out = asyncio.run(gen.generate(e, []))
     assert out.reasks == 1 and "같은 사실을 두 번 물음" in fake.users[1]
-    assert [x.text for x in out.questions] == [first[0]["text"], second[0]["text"]]
+    # 둘 다 그 종류의 하나뿐이라 상상해보기를 남기고, 해볼 것을 다시 받는다
+    assert [(x.type, x.text) for x in out.questions] == [("imagine", first[1]["text"]), ("try_next", second[0]["text"])]
+    assert out.dropped == [(first[0]["text"], "같은 사실을 두 번 물음")]

@@ -10,7 +10,6 @@ from app.questions import filters
 from app.questions.generate import generate
 from app.questions.schemas import ExperienceInput, OtherExperience
 from app.llm.client import LLMConnectionError, LLMModelError
-from app.constants import QUESTION_DEDUPE_SIMILARITY
 
 FORCED = "확인용으로 뺌 (다른 재료에서 새로 만들 것)"
 _real_apply = filters.apply
@@ -59,10 +58,9 @@ async def main(ids: list[str], force: bool = False):
             print(f"  ✗ 버림: {text}  ({why})")
         if force:
             forced = [t for t, why in out.dropped if why == FORCED]
-            repeats = [q.text for q in out.questions[1:]
-                       if any(filters.similarity(q.text, t) >= QUESTION_DEDUPE_SIMILARITY for t in forced)]
+            repeats = [t for t, why in out.dropped if why == filters.REPEATED]
             new = len(out.questions) - 1
-            verdict = "뺀 질문을 그대로 다시 냄" if repeats else ("새 질문을 받음" if new else "새 질문을 못 받음")
+            verdict = "새 질문을 받음" if new else ("뺀 질문을 말만 바꿔 다시 내서 버림" if repeats else "새 질문을 못 받음")
             print(f"  ▶ 다시 묻기 확인: 뺀 것 {len(forced)}개, 다시 물음 {out.reasks}회, 새로 받은 것 {new}개 → {verdict}")
 
 

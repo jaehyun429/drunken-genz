@@ -127,14 +127,49 @@ def test_same_fact_words_are_condition_values_found_in_situation_chips():
     assert filters.same_fact_words(ExperienceInput(**{**ALONE.model_dump(), "situation_chips": ["시간이 부족했다"]})) == set()
 
 
-def test_drops_second_question_that_flips_the_same_fact_on_another_axis():
-    # 11/15 Qwen f05 실제 출력. 글자 유사도는 0.12 라 겹침 규칙으로는 안 잡힌다
-    raw = [q("혼자 근무가 아니라 두 명이 함께였다면, 취객 응대 방식이 달라졌을까?", axis="scale"),
-           q("혼자 결정해야 하는 상황이 아니라면, 취객 상대할 때 어떤 선택을 했을까?", type="imagine", axis="situation")]
-    kept, dropped = filters.apply(raw, OTHERS, filters.same_fact_words(ALONE))
-    assert [k.axis for k in kept] == ["scale"] and dropped == [(raw[1]["text"], filters.SAME_FACT)]
-    kept, dropped = filters.apply(raw, OTHERS)
+SCALE_ALONE = q("혼자 근무가 아니라 두 명이 함께였다면, 취객 응대 방식이 달라졌을까?", axis="scale")
+SITUATION_ALONE = q("혼자 결정해야 하는 상황이 아니라면, 취객 상대할 때 어떤 선택을 했을까?", type="imagine", axis="situation")
+
+
+def test_same_fact_on_another_axis_keeps_only_one_and_prefers_imagine_on_a_tie():
+    # 11/15 Qwen f05 실제 출력. 글자 유사도는 0.12 라 겹침 규칙으로는 안 잡힌다.
+    # 둘 다 그 종류의 하나뿐이면 상상해보기를 남긴다 (해볼 것은 다시 받기 쉽다). 순서가 바뀌어도 같다
+    words = filters.same_fact_words(ALONE)
+    for raw in ([SCALE_ALONE, SITUATION_ALONE], [SITUATION_ALONE, SCALE_ALONE]):
+        kept, dropped = filters.apply(raw, OTHERS, words)
+        assert [k.axis for k in kept] == ["situation"] and dropped == [(SCALE_ALONE["text"], filters.SAME_FACT)]
+    kept, dropped = filters.apply([SCALE_ALONE, SITUATION_ALONE], OTHERS)
     assert len(kept) == 2, "낱말을 안 주면 보지 않는다"
+
+
+def test_same_fact_keeps_the_question_whose_type_would_otherwise_disappear():
+    words = filters.same_fact_words(ALONE)
+    other_imagine = q("새벽에 손님이 몰리지 않았다면, 판매 말고 어떤 일에 시간을 썼을까?", type="imagine", axis="external")
+    other_try = q("판매 말고 발주를 맡아본다면 어떨까?", axis="did")
+    # 상상해보기가 이미 둘이면 하나뿐인 해볼 것을 남긴다. 남긴 질문은 버린 질문이 있던 자리에 들어간다
+    kept, dropped = filters.apply([SITUATION_ALONE, other_imagine, SCALE_ALONE], OTHERS, words)
+    assert [k.axis for k in kept] == ["scale", "external"] and dropped == [(SITUATION_ALONE["text"], filters.SAME_FACT)]
+    # 해볼 것이 이미 둘이면 하나뿐인 상상해보기를 남긴다
+    kept, dropped = filters.apply([SCALE_ALONE, other_try, SITUATION_ALONE], OTHERS, words)
+    assert [k.axis for k in kept] == ["situation", "did"] and dropped == [(SCALE_ALONE["text"], filters.SAME_FACT)]
+    # 종류가 같으면 앞의 것을 남긴다
+    method = q("혼자 말고 둘이 번갈아 계산대를 보는 방식이었다면 어땠을까?", axis="method")
+    kept, dropped = filters.apply([SCALE_ALONE, method], OTHERS, words)
+    assert [k.axis for k in kept] == ["scale"] and dropped == [(method["text"], filters.SAME_FACT)]
+
+
+def test_split_repeats_drops_reworded_rejects_but_lets_format_fixes_through():
+    # 11/15 Qwen f02: 뺀 질문을 출처만 바꿔 다시 냈다
+    rejected = "매출 숫자보다 고객 반응이 더 중요하게 평가받는 환경이었다면, 사장님과의 대화에서 내가 더 편안했을지 궁금해볼까?"
+    reworded = q("주말 매출 숫자보다 단골 아저씨 같은 고객 반응이 더 중요하게 평가받는 환경이었다면, 내가 더 편안했을지 궁금해볼까?",
+                 type="imagine", axis="external")
+    other = q("판매 말고 메뉴를 짜는 일을 맡아본다면 어떨까?")
+    fresh, repeats = filters.split_repeats([reworded, other], [(rejected, "남과 비교")])
+    assert fresh == [other] and repeats == [(reworded["text"], filters.REPEATED)]
+    # 형식 때문에 버린 질문은 고쳐서 다시 내도 된다
+    for why in ("source 없음", "type 이상", "축 불일치 try_next/situation", "80자 초과"):
+        fresh, repeats = filters.split_repeats([reworded], [(rejected, why)])
+        assert fresh == [reworded] and repeats == [], why
 
 
 def test_same_fact_rule_leaves_different_questions_alone():
