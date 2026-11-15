@@ -3,7 +3,7 @@
 from __future__ import annotations
 import re
 from .schemas import ExperienceInput, GeneratedQuestion, AXES_TRY, AXES_IMAGINE
-from ..constants import QUESTION_TEXT_MAX, QUESTION_MAX, QUESTION_DEDUPE_SIMILARITY
+from ..constants import QUESTION_TEXT_MAX, QUESTION_MAX, QUESTION_DEDUPE_SIMILARITY, QUESTION_ENDING
 
 # 패턴 → 이유. 질문 본문에 걸리면 버림.
 # 11/14~15 실측(Haiku·Qwen)에서 나온 오탐은 전부 여기 패턴이 넓어서였다 ("부족하지 않았다면", "얘기하는 게 좋다면", "평소보다 더").
@@ -16,7 +16,7 @@ BANNED: list[tuple[re.Pattern, str]] = [
                 r"(다른 사람|다른 팀|다른 조|동기|친구|또래|동료|선배|후배|팀원|조원|지원자|참가자)(들)?(보다|에 비해)"), "남과 비교"),
     (re.compile(r"(불안|지치|막막|답답|아쉬)[^가-힣]{0,2}(하지|지|해하지) ?(않|말)"), "감정을 고치라는 말"),
     # 권하는 말로 끝날 때만. "얘기하는 게 좋다면 …"처럼 사용자의 말을 받아 조건으로 이어가면 통과
-    (re.compile(r"해야 (한다|해|돼|하지)|하는 게 (좋|낫)(?!다면|았|다는|다고)|하는 게 나[아을]|필요해\?"), "조언·훈계"),
+    (re.compile(r"해야 (한다|합니다|해|돼|하지)|하는 게 (좋|낫)(?!다면|았|다는|다고)|하는 게 나[아을]|필요해요?\?"), "조언·훈계"),
     (re.compile(r"(성공|합격|통과)했을 (텐데|거야|것이다)|분명히|틀림없이"), "결과 단정"),
     (re.compile(r"(기한|마감)[을를]? 연장|AI ?없이|시간이 (두|세) ?배|무한"), "할 수 없는 가정"),
     # 내가 한 행동을 안 했다고 뒤집는 것만. "하지" 단독은 "부족하지·불편하지 않았다면"(상황을 바꾼 상상해보기)까지 잡아서
@@ -34,6 +34,11 @@ _OTHERS_HONORIFIC = re.compile(r"셨(다면|더라면|으면)")
 _OTHERS_SUBJECT = re.compile(_PERSON + r"(?:이|가|께서) (\S+)[^,.?!]*?(?:다면|더라면|으면)")
 _STATE_PREDICATE = re.compile(r"^(아니|아닌|되|돼|됐|있|없|많|적|더$|한$|두$|세$|몇$)")
 OTHERS_ACTION = "다른 사람의 행동"
+
+# 말투 (11/15 재현 결정: 존댓말). Qwen 은 "…궁금해.", "…했을지?"처럼 묻다 만 꼴이나 반말을 섞어 낸다.
+# 끝맺음만 본다. 문장 가운데의 말투는 프롬프트에 맡긴다.
+TONE = "존댓말 물음 꼴이 아님"
+_ENDING = re.compile(QUESTION_ENDING)
 
 
 def _adnominal(token: str) -> bool:
@@ -111,9 +116,9 @@ def _keep_new(qtype: str, old: GeneratedQuestion, kept: list[GeneratedQuestion])
 
 
 # 다시 물었을 때 버린 질문을 말만 바꿔 다시 내는 것 (11/15 Qwen f02 강제 확인. 다시 묻기 프롬프트에 적어도 Qwen 은 안 지킨다).
-# 형식 때문에 버린 것(출처 없음, 축 불일치, 길이)은 고쳐서 다시 내는 게 맞으니 견주지 않는다.
+# 형식 때문에 버린 것(출처 없음, 축 불일치, 길이, 말투)은 고쳐서 다시 내는 게 맞으니 견주지 않는다.
 REPEATED = "버린 질문을 다시 냄"
-_FIXABLE = re.compile(r"^(source 없음|type 이상|축 불일치)|자 초과$")
+_FIXABLE = re.compile(rf"^(source 없음|type 이상|축 불일치|{re.escape(TONE)})|자 초과$")
 
 
 def split_repeats(raw: list[dict], dropped: list[tuple[str, str]]) -> tuple[list[dict], list[tuple[str, str]]]:
@@ -156,6 +161,8 @@ def apply(raw: list[dict], other_ids: set[str],
             reason = OTHERS_ACTION
         if reason:
             dropped.append((text, reason)); continue
+        if not _ENDING.search(text):   # 금지 규칙 다음에 본다. 둘 다 걸리면 고쳐 내도 못 받는 쪽의 이유를 남기려고
+            dropped.append((text, TONE)); continue
         if any(similarity(text, k.text) >= QUESTION_DEDUPE_SIMILARITY for k in kept):
             dropped.append((text, "겹치는 질문")); continue
         clash = [i for i, k in enumerate(kept) if same_fact(text, axis, k, fact_words)]

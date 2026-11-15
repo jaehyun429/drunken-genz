@@ -13,7 +13,10 @@ QUESTION_DEDUPE_SIMILARITY = 0.5 # 문자 2-gram 자카드. 이상이면 겹치�
 QUESTION_REASK_MAX = 1           # 걸러낸 뒤 QUESTION_MIN 미만이면 버린 이유를 알려주고 다시 묻는 횟수. 하루 횟수에 안 셈
 QUESTION_REASK_PROMPT = "question_reask_v1"   # 다시 물을 때 사용자 메시지 뒤에 붙이는 글
 QUESTION_SOURCE_SNAP_SIMILARITY = 0.6  # 출처가 기록에 없는 글자면(오타 등) 이 이상 닮은 칩·문장으로 바꾼다. 문자 2-gram 자카드
-QUESTION_PROMPT = "question_v3"  # app/llm/prompts/<이름>.md. 버전을 올리면 예전 버전으로 만든 질문은 재사용하지 않는다
+QUESTION_PROMPT = "question_v4"  # app/llm/prompts/<이름>.md. 버전을 올리면 예전 버전으로 만든 질문은 재사용하지 않는다
+# 질문 끝맺음. 프롬프트의 말투와 짝이라 같이 바꾼다 (v4 부터 존댓말. v3 로 되돌리면 r"\?$").
+# TODO(기획): 말투는 PRD 7장 톤 규칙이 정한다. 11/15 재현 결정으로 존댓말 "~해보는 것은 어떨까요?"를 임시값으로 쓴다
+QUESTION_ENDING = r"요\?$"
 # TODO(기획): v2 는 상황 칩이 없는 기록에 상상해보기를 0개 낼 수 있다 (기록에 없는 상황을 지어내지 않음).
 #   두 종류가 꼭 하나씩 있어야 하는지, 앱 화면이 그걸 가정하는지 확인 필요
 
