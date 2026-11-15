@@ -85,13 +85,14 @@ async def run_batch(batch_id: uuid.UUID) -> None:
             await _fail(conn, batch_id, "model", f"입력 없음: {err.code}")
             return
 
-        # 같은 입력 해시로 성공한 적이 있으면 LLM 안 부르고 복사 (CLAUDE.md 4장 '출력')
-        from .prompt import input_hash
+        # 같은 입력 해시로 성공한 적이 있으면 LLM 안 부르고 복사 (CLAUDE.md 4장 '출력').
+        # 프롬프트 버전이 올라갔으면 예전 버전으로 만든 질문은 재사용하지 않는다
+        from .prompt import input_hash, prompt_version
         h = input_hash(e)
         prev = await conn.fetchrow(
             "select id, generation, model, prompt_version from question_batch "
-            "where experience_id = $1 and status = 'done' and input_hash = $2 and id <> $3 "
-            "order by generation desc limit 1", batch["experience_id"], h, batch_id)
+            "where experience_id = $1 and status = 'done' and input_hash = $2 and id <> $3 and prompt_version = $4 "
+            "order by generation desc limit 1", batch["experience_id"], h, batch_id, prompt_version())
         if prev is not None:
             rows = await conn.fetch(
                 "select type, axis, text, source, done_experience_id from question "

@@ -24,8 +24,12 @@ def test_hash_ignores_whitespace_only_changes():
 
 def test_build_messages_has_rules_and_others():
     version, system, user = build_messages(exp(), [OtherExperience(id="e2", activity_name="편의점", genre="알바", role="야간")])
-    assert version == "v1"
+    assert version == "v2"
     assert "잘한 일을 그냥 뒤집은 질문" in system and "80자" in system
+    # v2 에서 넣은 것: 재료만큼 만들기, 남의 행동 금지, 상황 뒤집기만 금지 (11/14 Qwen 실측)
+    assert "재료가 셋 이상 있는데 2개만 내면" in system
+    assert "다른 사람이 다르게 행동했다면" in system and "상황을 반대말로 뒤집기만 한 질문" in system
+    assert "{text_max}" not in system
     assert "[e2] 편의점" in user and "## 경험 기록" in user
 
 

@@ -133,6 +133,28 @@ def test_regenerate_keeps_saved_and_limits_daily(env):
     assert r.status_code == 404
 
 
+def test_regenerate_does_not_reuse_older_prompt_version(env):
+    client, fake = env
+    uid, eid = asyncio.run(_seed())
+    client.post("/v1/internal/experience-saved", headers={"X-Webhook-Secret": "s3cret"},
+                json={"type": "INSERT", "table": "experience", "record": {"id": str(eid), "user_id": str(uid)}})
+    first = asyncio.run(_wait_batch(eid))
+    from app.questions.prompt import prompt_version
+    assert first["prompt_version"] == prompt_version()
+
+    async def age_prompt():
+        conn = await asyncpg.connect(DB)
+        await conn.execute("update question_batch set prompt_version = 'v0' where experience_id = $1", eid)
+        await conn.close()
+    asyncio.run(age_prompt())
+
+    r = client.post("/v1/questions/regenerate", headers={"Authorization": f"Bearer dev:{uid}"}, json={"experience_id": str(eid)})
+    assert r.status_code == 202, r.text
+    batch = asyncio.run(_wait_batch(eid))
+    assert batch["status"] == "done" and batch["prompt_version"] == prompt_version()
+    assert fake.calls == 2, "입력 해시가 같아도 프롬프트 버전이 다르면 다시 만든다"
+
+
 def test_connection_failure_then_retry(env):
     client, fake = env
     uid, eid = asyncio.run(_seed())

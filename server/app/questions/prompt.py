@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from .schemas import ExperienceInput, OtherExperience
-from ..constants import QUESTION_TEXT_MAX
+from ..constants import QUESTION_PROMPT, QUESTION_TEXT_MAX
 from ..llm.client import load_prompt
 
 _WS = re.compile(r"\s+")
@@ -63,6 +63,11 @@ def input_hash(e: ExperienceInput) -> str:
     return hashlib.sha256(record_text(e).encode("utf-8")).hexdigest()
 
 
+def prompt_version() -> str:
+    """지금 쓰는 프롬프트 버전. 저장된 질문을 재사용해도 되는지 볼 때 쓴다."""
+    return load_prompt(QUESTION_PROMPT)[0]
+
+
 def others_text(others: list[OtherExperience]) -> str:
     if not others:
         return "(없음)"
@@ -72,7 +77,7 @@ def others_text(others: list[OtherExperience]) -> str:
 
 def build_messages(e: ExperienceInput, others: list[OtherExperience]) -> tuple[str, str, str]:
     """(prompt_version, system, user)."""
-    version, system = load_prompt("question_v1")
+    version, system = load_prompt(QUESTION_PROMPT)
     system = system.replace("{text_max}", str(QUESTION_TEXT_MAX))
     user = f"## 경험 기록\n{record_text(e)}\n\n## 이 사람의 다른 기록 (이미 해본 것 판정용)\n{others_text(others)}"
     return version, system, user

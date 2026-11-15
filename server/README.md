@@ -63,7 +63,7 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 ## 폴더
 ```
 app/config.py        환경변수        app/llm/client.py           LLM 호출·재시도·실패 분류
-app/constants.py     숫자 전부       app/llm/prompts/question_v1.md  프롬프트 (버전 붙임)
+app/constants.py     숫자 전부       app/llm/prompts/question_v2.md  프롬프트 (버전 붙임. 쓰는 버전은 constants 의 QUESTION_PROMPT)
 app/errors.py        에러 형식       app/questions/prompt.py     경험 → 입력 문단·해시
 app/auth.py          JWT·웹훅 비밀   app/questions/filters.py    응답 후 걸러내기
 app/db.py            asyncpg 풀      app/questions/service.py    batch·저장
@@ -79,17 +79,33 @@ app/embedding/       임베딩·웹훅·sweep  app/related/service.py      후�
 4. `experience_log` 테이블은 진행 중 활동의 회차 기록을 질문 입력에 넣을 때 읽음 (소윤 테이블, 읽기만)
 
 ## GPU 서버에서 데모 돌리기 (11/17)
-컨테이너 안 `jhjeong/genz` 에 이 폴더를 올린 뒤:
+컨테이너 안 `jhjeong/genz` 는 이 레포의 git 체크아웃이다 (11/14 에 바꿈). 새 코드는 `git pull` 로 받는다:
 ```bash
-cd /NHNHOME/WORKSPACE/26moe002_H/jhjeong/genz/server
-uv venv .venv && uv pip install --python .venv/bin/python -e .
-cp .env.example .env            # LLM_BASE_URL=http://localhost:18000/v1 그대로
+cd /NHNHOME/WORKSPACE/26moe002_H/jhjeong/genz && git pull
+cd server
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e .   # 처음 한 번
+cp .env.example .env                                                            # 처음 한 번
+pgrep -af 'vllm serve'                      # 이미 떠 있는 Qwen 이 있는지, 포트가 몇 번인지 먼저 본다
+export LLM_BASE_URL=http://localhost:8001/v1   # 11/14 기준 Qwen3.8-27B 가 8001 에 떠 있었음
 .venv/bin/python -m scripts.demo_questions
 ```
-vLLM 이 떠 있어야 함: `bash ../llm_test/serve.sh qwen27` (PORT=18000).
+Qwen 이 이미 떠 있으면 GPU 메모리를 다 쓰고 있어서 새로 띄우면(`bash ../llm_test/serve.sh qwen27`, PORT=18000) 죽는다. 떠 있는 걸 쓴다. 아무것도 없을 때만 새로 띄우고 `LLM_BASE_URL` 을 18000 으로.
 
 기록을 어디까지 채웠느냐에 따른 질문 개수 비교 (DB 필요 없음. Qwen 은 temperature 0 이라 반복은 1번이면 됨):
 ```bash
-LLM_TIMEOUT_S=60 .venv/bin/python -m scripts.eval_record_depth 1 depth_qwen.json
+LLM_TIMEOUT_S=60 .venv/bin/python -m scripts.eval_record_depth 1 depth_qwen_v2.json
 ```
-11/14 Haiku 3회 평균: 필수만 2.06개 → 전부 2.89개. 개수보다 질문 출처(기간·활동명 vs 상황·한 줄) 차이가 큼.
+실측 (가짜 경험 6개, 경험당 평균 질문 수):
+
+| 판 | v1 Haiku (3회) | v1 Qwen | v2 Haiku (1회) |
+|---|---|---|---|
+| 필수만 | 2.06 | 2.00 | 2.00 |
+| + 칩 보강글 | 2.27 | 2.00 | 2.60 |
+| + 조건 | 2.28 | 2.00 | 3.50 |
+| + 상황·감정 | 2.39 | 2.00 | 3.17 |
+| + 한 줄 | 2.44 | 2.00 | 2.83 |
+| 전부 | 2.89 | 1.83 | 3.50 |
+
+- v1 에서 Qwen 은 기록을 얼마나 채우든 2개(해볼 것 1 + 상상해보기 1)만 냈다. 프롬프트의 "역할 하나 + 상황 하나" 예시를 그대로 따른 것. v2 는 재료(보강글·조건·상황·한 줄)마다 후보를 만들게 바꿨다. **v2 Qwen 은 아직 안 쟀다**
+- v2 에서는 상황 칩이 없는 기록(필수만, + 조건)에 상상해보기가 0개다. 기록에 없는 상황을 지어내지 않게 한 결과. 앱이 두 종류가 다 있다고 가정하면 안 된다
+- 2개 미만으로 떨어진 경우는 전부 필터 오탐이었다 ("얘기하는 게 좋다면", "부족하지 않았다면"). 11/15 에 고침

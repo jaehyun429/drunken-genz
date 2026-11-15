@@ -26,8 +26,48 @@ def test_drops_axis_mismatch():
 
 
 def test_drops_reversed_good_deed():
-    kept, dropped = filters.apply([q("단골 이름 외우기 시작하지 않았다면 어땠을까?", type="imagine", axis="situation")], OTHERS)
-    assert kept == [] and dropped[0][1] == "잘한 일을 뒤집기만 한 질문"
+    for text in ["단골 이름 외우기 시작하지 않았다면 어땠을까?", "인스타에 릴스를 올리지 않았다면 어땠을까?",
+                 "부스 홍보를 하지 않았다면 어땠을까?"]:
+        kept, dropped = filters.apply([q(text, type="imagine", axis="situation")], OTHERS)
+        assert kept == [] and dropped[0][1] == "잘한 일을 뒤집기만 한 질문", text
+
+
+# 11/14 실측에서 잘못 버려졌던 문장과, 그와 같은 꼴. 패턴을 고칠 때 여기가 깨지면 안 된다
+PASS = [
+    ("시간이 부족하지 않았다면, 타로 부스 동선 기획에 더 많은 시간을 썼을 때 어떤 변화가 있었을까?", "imagine", "situation"),   # Qwen
+    ("손님이랑 얘기하는 게 좋다면, 주문 받을 때 짧은 말을 먼저 건네는 방식으로 바꿔볼까?", "try_next", "method"),          # Haiku
+    ("시간이 부족했던 상황이 아니었다면, 설문 문항을 어떻게 다르게 짰을까?", "imagine", "situation"),
+    ("방식이 복잡하지 않았다면 어디에 시간을 더 썼을까?", "imagine", "situation"),
+    ("손님이랑 얘기하는 게 좋았다면, 그 시간이 더 긴 자리에서 일해볼까?", "try_next", "field"),
+    ("팀원이 아니라 팀장으로 들어갔다면 어땠을까?", "imagine", "situation"),
+    ("팀원이 한 명 더 있었다면 동선을 어떻게 나눴을까?", "imagine", "external"),
+    ("멘토가 없었다면 수업 준비를 어떻게 했을까?", "imagine", "external"),
+    ("교수님이 정한 주제가 아니라 직접 고른 주제였다면 어땠을까?", "imagine", "external"),
+    ("내가 팀장이었다면 회의를 어떻게 시작했을까?", "imagine", "situation"),
+]
+
+
+def test_passes_questions_that_only_look_banned():
+    for text, type_, axis in PASS:
+        kept, dropped = filters.apply([q(text, type=type_, axis=axis)], OTHERS)
+        assert len(kept) == 1 and dropped == [], (text, dropped)
+
+
+def test_drops_advice_only_when_it_recommends():
+    for text in ["미리 말하는 게 좋아", "먼저 말하는 게 낫지 않을까?", "다음엔 일찍 준비하는 게 좋겠어", "혼자 하는 게 나을까?"]:
+        kept, dropped = filters.apply([q(text)], OTHERS)
+        assert kept == [] and dropped[0][1] == "조언·훈계", text
+
+
+def test_drops_other_peoples_actions():
+    # 앞의 둘은 11/14 Qwen 이 실제로 낸 질문
+    for text in ["사장님이 매출이 아니라 손님 반응으로 피드백을 주셨다면 어땠을까?",
+                 "혼자 결정해야 했던 상황이 아니라, 상사가 옆에서 지시를 내렸다면 어땠을까?",
+                 "팀장이 먼저 방향을 정리했다면 어땠을까?",
+                 "사장님이 매출을 묻지 않았다면 어땠을까?",
+                 "팀원들이 회의에 빠지지 않았다면 어땠을까?"]:
+        kept, dropped = filters.apply([q(text, type="imagine", axis="external")], OTHERS)
+        assert kept == [] and dropped[0][1] == "다른 사람의 행동", (text, dropped)
 
 
 def test_drops_impossible_assumption():
