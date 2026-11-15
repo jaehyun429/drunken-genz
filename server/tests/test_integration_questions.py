@@ -19,9 +19,9 @@ def _reachable() -> bool:
 pytestmark = pytest.mark.skipif(not _reachable(), reason="로컬 DB 없음")
 
 FAKE_QUESTIONS = {"questions": [
-    {"type": "try_next", "axis": "method", "text": "다음 회의 때 첫 5분 안에 한마디만 꺼내볼까?", "source": "협업 조율 보강글", "done_experience_id": None},
-    {"type": "imagine", "axis": "situation", "text": "그때 역할을 먼저 정했다면 어땠을까?", "source": "한 줄", "done_experience_id": None},
-    {"type": "imagine", "axis": "situation", "text": "단골 이름 외우기 시작하지 않았다면 어땠을까?", "source": "한 줄", "done_experience_id": None},
+    {"type": "try_next", "axis": "method", "text": "다음 회의 때 첫 5분 안에 한마디만 꺼내볼까요?", "source": "협업 조율 보강글", "done_experience_id": None},
+    {"type": "imagine", "axis": "situation", "text": "그때 역할을 먼저 정했다면 어땠을까요?", "source": "한 줄", "done_experience_id": None},
+    {"type": "imagine", "axis": "situation", "text": "단골 이름 외우기 시작하지 않았다면 어땠을까요?", "source": "한 줄", "done_experience_id": None},
 ]}
 
 

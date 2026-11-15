@@ -24,11 +24,16 @@ def test_hash_ignores_whitespace_only_changes():
 
 def test_build_messages_has_rules_and_others():
     version, system, user = build_messages(exp(), [OtherExperience(id="e2", activity_name="편의점", genre="알바", role="야간")])
-    assert version == "v2"
+    assert version == "v4"
     assert "잘한 일을 그냥 뒤집은 질문" in system and "80자" in system
     # v2 에서 넣은 것: 재료만큼 만들기, 남의 행동 금지, 상황 뒤집기만 금지 (11/14 Qwen 실측)
     assert "재료가 셋 이상 있는데 2개만 내면" in system
     assert "다른 사람이 다르게 행동했다면" in system and "상황을 반대말로 뒤집기만 한 질문" in system
+    # v3 에서 넣은 것: 그 활동에서 있을 수 없는 조건으로 바꾸지 않기 (11/15 Qwen f05 "온라인으로 고객 응대")
+    assert "그 활동에서 있을 수 없는 조건" in system
+    # v4 에서 넣은 것: 존댓말 (11/15 재현 결정 "~해보는 것은 어떨까요?"). 끝맺음은 filters.TONE 이 다시 본다
+    assert "## 말투" in system and "해보는 것은 어떨까요?" in system and "어땠을까요?" in system
+    assert '"-시-"를 넣지 않는다' in system
     assert "{text_max}" not in system
     assert "[e2] 편의점" in user and "## 경험 기록" in user
 

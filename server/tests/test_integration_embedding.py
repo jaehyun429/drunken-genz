@@ -20,10 +20,15 @@ pytestmark = pytest.mark.skipif(not _reachable(), reason="로컬 DB 없음")
 
 
 def fake_vector(text: str) -> list[float]:
-    """단어 집합 → 1024차원 정규화 벡터. 같은 단어가 많이 겹칠수록 코사인이 높다."""
+    """단어 집합 → 1024차원 정규화 벡터. 같은 단어가 많이 겹칠수록 코사인이 높다.
+       단어 하나를 여덟 칸에 ±1 로 흩는다. 한 칸에만 두면 서로 다른 단어가 1/1024 로 같은 칸에 떨어져서,
+       로컬 DB 에 예전 실행의 카드가 쌓일수록 다른 tok 의 카드가 임계값을 넘어 끼어든다
+       (11/15: 쌓인 카드 950장에서 관련 경험 통합 테스트가 25번 중 8번 실패)."""
     v = [0.0] * 1024
     for w in text.replace("/", " ").replace(",", " ").replace(".", " ").split():
-        v[int(hashlib.md5(w.encode()).hexdigest(), 16) % 1024] += 1.0
+        d = hashlib.sha256(w.encode()).digest()
+        for i in range(8):
+            v[int.from_bytes(d[2 * i:2 * i + 2], "big") % 1024] += 1.0 if d[16] >> i & 1 else -1.0
     n = math.sqrt(sum(x * x for x in v)) or 1.0
     return [x / n for x in v]
 
