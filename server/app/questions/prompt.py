@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from .schemas import ExperienceInput, OtherExperience
-from ..constants import QUESTION_PROMPT, QUESTION_TEXT_MAX
+from ..constants import QUESTION_PROMPT, QUESTION_REASK_PROMPT, QUESTION_TEXT_MAX
 from ..llm.client import load_prompt
 
 _WS = re.compile(r"\s+")
@@ -58,6 +58,20 @@ def record_text(e: ExperienceInput) -> str:
     return "\n".join(lines)
 
 
+def record_fragments(e: ExperienceInput) -> list[str]:
+    """출처가 될 수 있는 조각들 (칩·문장 하나씩). record_text 와 같은 재료에서 뽑는다. 감정은 질문 재료가 아니라 뺀다."""
+    out: list[str | None] = [e.activity_name, e.genre, e.role, e.place]
+    out += e.did_chips + e.custom_chips + list(e.did_notes.values())
+    for k, v in e.conditions.items():
+        vals = [_norm(x) for x in (v if isinstance(v, list) else [v]) if _norm(x)]
+        if vals:
+            out.append(f"{_norm(k)}={'/'.join(vals)}")
+    out += e.situation_chips + list(e.situation_notes.values()) + [e.one_liner] + e.ai_tags
+    for lg in e.logs:
+        out += lg.situation_chips + [lg.one_liner]
+    return [_norm(x) for x in out if _norm(x)]
+
+
 def input_hash(e: ExperienceInput) -> str:
     """같은 입력이면 같은 해시 → LLM 안 부르고 재사용 (CLAUDE.md 4장 '출력')."""
     return hashlib.sha256(record_text(e).encode("utf-8")).hexdigest()
@@ -81,3 +95,12 @@ def build_messages(e: ExperienceInput, others: list[OtherExperience]) -> tuple[s
     system = system.replace("{text_max}", str(QUESTION_TEXT_MAX))
     user = f"## 경험 기록\n{record_text(e)}\n\n## 이 사람의 다른 기록 (이미 해본 것 판정용)\n{others_text(others)}"
     return version, system, user
+
+
+def reask_text(kept: list[str], dropped: list[tuple[str, str]], need: int) -> str:
+    """걸러낸 뒤 질문이 모자랄 때 사용자 메시지 뒤에 붙이는 글. 통과한 질문·버린 질문과 이유를 알려주고 need 개만 더 받는다."""
+    _, body = load_prompt(QUESTION_REASK_PROMPT)
+    kept_lines = "\n".join(f"- {t}" for t in kept) or "(없음)"
+    dropped_lines = "\n".join(f"- {t} → {why}" for t, why in dropped) or "(없음)"
+    return (body.replace("{have}", str(len(kept))).replace("{need}", str(need))
+                .replace("{kept}", kept_lines).replace("{dropped}", dropped_lines))

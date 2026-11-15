@@ -10,6 +10,9 @@ LLM_MAX_ATTEMPTS = 3             # 서버 자동 재시도. 하루 횟수에 안
 LLM_MAX_TOKENS = 4096             # 응답 상한. 사고(thinking) 토큰까지 세는 모델이 있어 1024 는 모자람
 LLM_RETRY_BACKOFF_S = (1.0, 2.0) # 1차 실패 후 1초, 2차 실패 후 2초
 QUESTION_DEDUPE_SIMILARITY = 0.5 # 문자 2-gram 자카드. 이상이면 겹치는 질문으로 보고 뒤의 것을 버림
+QUESTION_REASK_MAX = 1           # 걸러낸 뒤 QUESTION_MIN 미만이면 버린 이유를 알려주고 다시 묻는 횟수. 하루 횟수에 안 셈
+QUESTION_REASK_PROMPT = "question_reask_v1"   # 다시 물을 때 사용자 메시지 뒤에 붙이는 글
+QUESTION_SOURCE_SNAP_SIMILARITY = 0.6  # 출처가 기록에 없는 글자면(오타 등) 이 이상 닮은 칩·문장으로 바꾼다. 문자 2-gram 자카드
 QUESTION_PROMPT = "question_v2"  # app/llm/prompts/<이름>.md. 버전을 올리면 예전 버전으로 만든 질문은 재사용하지 않는다
 # TODO(기획): v2 는 상황 칩이 없는 기록에 상상해보기를 0개 낼 수 있다 (기록에 없는 상황을 지어내지 않음).
 #   두 종류가 꼭 하나씩 있어야 하는지, 앱 화면이 그걸 가정하는지 확인 필요

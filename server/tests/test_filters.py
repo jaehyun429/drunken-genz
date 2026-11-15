@@ -44,6 +44,9 @@ PASS = [
     ("멘토가 없었다면 수업 준비를 어떻게 했을까?", "imagine", "external"),
     ("교수님이 정한 주제가 아니라 직접 고른 주제였다면 어땠을까?", "imagine", "external"),
     ("내가 팀장이었다면 회의를 어떻게 시작했을까?", "imagine", "situation"),
+    ("야간 근무 중 처리한 고객 응대 건수를 평소보다 더 늘려봤다면 어땠을까?", "try_next", "did"),            # Qwen v2
+    ("지금보다 더 작은 규모의 팀에서 같은 일을 해볼까?", "try_next", "scale"),
+    ("첫 만남들에서 먼저 말을 걸어보는 방식으로 바꿔볼까?", "try_next", "method"),
 ]
 
 
@@ -79,6 +82,13 @@ def test_drops_comparison_and_lecture():
     kept, dropped = filters.apply([q("다른 사람들은 어떻게 했을까?"), q("기록을 미리 해야 해?")], OTHERS)
     assert kept == []
     assert {d[1] for d in dropped} == {"남과 비교", "조언·훈계"}
+
+
+def test_drops_comparison_with_people_only():
+    for text in ("동기들보다 더 빨리 끝내려면 뭘 바꿔볼까?", "남들보다 잘 해내려면 어떤 방식을 골라볼까?",
+                 "다른 팀보다 준비를 일찍 시작했다면 어땠을까?", "남처럼 말을 많이 하는 역할을 맡아볼까?"):
+        kept, dropped = filters.apply([q(text)], OTHERS)
+        assert kept == [] and dropped[0][1] == "남과 비교", text
 
 
 def test_dedupes_similar_questions():

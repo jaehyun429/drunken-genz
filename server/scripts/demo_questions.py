@@ -25,7 +25,8 @@ async def main(ids: list[str]):
             print(f"  ✗ 연결 문제 (앱: 다시 시도 버튼) — {err}"); continue
         except LLMModelError as err:
             print(f"  ✗ 모델 문제 (앱: 안내만) — {err}"); continue
-        print(f"  {time.time()-t0:.1f}s · {len(out.questions)}개 · 시도 {out.attempts} · 프롬프트 {out.prompt_version}")
+        again = f" · 다시 물음 {out.reasks}회" if out.reasks else ""
+        print(f"  {time.time()-t0:.1f}s · {len(out.questions)}개 · 시도 {out.attempts}{again} · 프롬프트 {out.prompt_version}")
         for q in out.questions:
             tag = "해볼 것 " if q.type == "try_next" else "상상해보기"
             done = f"  [이미 해본 것: {q.done_experience_id}]" if q.done_experience_id else ""

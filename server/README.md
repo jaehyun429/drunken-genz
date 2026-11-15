@@ -27,6 +27,11 @@ curl localhost:8080/v1/health
 3. 성공: 안 담은 이전 질문 삭제 → 새 질문 삽입 → `done`. 실패: `failed` + `failure_reason`(`connection` → 앱이 "다시 시도" 버튼 → `POST /v1/questions/retry`, `model` → 안내만)
 4. 사용자 재생성 버튼 → `POST /v1/questions/regenerate` (JWT). 하루 1회 KST, 초과 429 `QUESTION_REGEN_LIMIT`
 
+생성 한 번 안에서 하는 일 (`app/questions/generate.py`):
+- 응답을 걸러낸 뒤 2개가 안 되면 **한 번만** 다시 묻는다. 통과한 질문과 버린 질문·이유를 알려주고 모자란 개수만 받는다 (`question_reask_v1.md`). 2개까지만 채우고, 하루 횟수에 세지 않는다. 다시 물어도 모자라면 있는 것만 저장한다. 0개면 `model` 실패
+- 질문의 `source` 를 기록 글자와 맞춘다 (`source.py`). 모델이 붙인 항목 이름("한 줄: …", "역할 칩 '…'")을 떼고, 틀리게 옮긴 칩은 가장 닮은 칩으로 바꾼다. 기록에서 못 찾으면 그대로 둔다
+- 2개 미만으로 끝난 batch 는 입력 해시가 같아도 재사용하지 않는다
+
 ## DB 없이 데모
 ```bash
 python -m scripts.demo_questions          # 가짜 경험 6개 → 질문·버린 것·이유 출력
@@ -66,7 +71,10 @@ app/config.py        환경변수        app/llm/client.py           LLM 호출�
 app/constants.py     숫자 전부       app/llm/prompts/question_v2.md  프롬프트 (버전 붙임. 쓰는 버전은 constants 의 QUESTION_PROMPT)
 app/errors.py        에러 형식       app/questions/prompt.py     경험 → 입력 문단·해시
 app/auth.py          JWT·웹훅 비밀   app/questions/filters.py    응답 후 걸러내기
-app/db.py            asyncpg 풀      app/questions/service.py    batch·저장
+app/db.py            asyncpg 풀      app/questions/generate.py   호출 → 걸러내기 → 다시 묻기 → 출처 맞추기
+                                     app/questions/source.py     source 를 기록 글자에 맞추기
+                                     app/llm/prompts/question_reask_v1.md  다시 물을 때 붙이는 글
+                                     app/questions/service.py    batch·저장
                                      app/questions/router.py     엔드포인트
 app/cards/public.py  PublicCard 조립   app/related/rerank.py       LLM 재정렬·이유 걸러내기
 app/embedding/       임베딩·웹훅·sweep  app/related/service.py      후보·캐시·새 카드 재계산
@@ -93,19 +101,20 @@ Qwen 이 이미 떠 있으면 GPU 메모리를 다 쓰고 있어서 새로 띄�
 
 기록을 어디까지 채웠느냐에 따른 질문 개수 비교 (DB 필요 없음. Qwen 은 temperature 0 이라 반복은 1번이면 됨):
 ```bash
-LLM_TIMEOUT_S=60 .venv/bin/python -m scripts.eval_record_depth 1 depth_qwen_v2.json
+LLM_TIMEOUT_S=60 .venv/bin/python -m scripts.eval_record_depth 1 depth_qwen_v3.json
 ```
 실측 (가짜 경험 6개, 경험당 평균 질문 수):
 
-| 판 | v1 Haiku (3회) | v1 Qwen | v2 Haiku (1회) |
-|---|---|---|---|
-| 필수만 | 2.06 | 2.00 | 2.00 |
-| + 칩 보강글 | 2.27 | 2.00 | 2.60 |
-| + 조건 | 2.28 | 2.00 | 3.50 |
-| + 상황·감정 | 2.39 | 2.00 | 3.17 |
-| + 한 줄 | 2.44 | 2.00 | 2.83 |
-| 전부 | 2.89 | 1.83 | 3.50 |
+| 판 | v1 Haiku (3회) | v1 Qwen | v2 Haiku (1회) | v2 Qwen (1회) |
+|---|---|---|---|---|
+| 필수만 | 2.06 | 2.00 | 2.00 | 1.83 |
+| + 칩 보강글 | 2.27 | 2.00 | 2.60 | 2.20 |
+| + 조건 | 2.28 | 2.00 | 3.50 | 2.17 |
+| + 상황·감정 | 2.39 | 2.00 | 3.17 | 2.17 |
+| + 한 줄 | 2.44 | 2.00 | 2.83 | 2.00 |
+| 전부 | 2.89 | 1.83 | 3.50 | 2.83 |
 
-- v1 에서 Qwen 은 기록을 얼마나 채우든 2개(해볼 것 1 + 상상해보기 1)만 냈다. 프롬프트의 "역할 하나 + 상황 하나" 예시를 그대로 따른 것. v2 는 재료(보강글·조건·상황·한 줄)마다 후보를 만들게 바꿨다. **v2 Qwen 은 아직 안 쟀다**
+- v1 에서 Qwen 은 기록을 얼마나 채우든 2개(해볼 것 1 + 상상해보기 1)만 냈다. 프롬프트의 "역할 하나 + 상황 하나" 예시를 그대로 따른 것. v2 는 재료(보강글·조건·상황·한 줄)마다 후보를 만들게 바꿨다. v2 Qwen 은 전부 채운 기록에서 2.83 까지 올랐지만 중간 단계는 여전히 2개 근처다
+- v2 Qwen 표는 다시 묻기를 넣기 전에 잰 것이다. 2개 미만이 두 번 있었다. 하나는 필터 오탐("평소보다 더"를 남과 비교로 봄, 고침), 하나는 맞게 버린 것("사장님이 … 꺼냈다면"). 뒤쪽 같은 경우를 다시 묻기가 채운다. **다시 묻기를 넣은 뒤의 Qwen 은 아직 안 쟀다**
 - v2 에서는 상황 칩이 없는 기록(필수만, + 조건)에 상상해보기가 0개다. 기록에 없는 상황을 지어내지 않게 한 결과. 앱이 두 종류가 다 있다고 가정하면 안 된다
-- 2개 미만으로 떨어진 경우는 전부 필터 오탐이었다 ("얘기하는 게 좋다면", "부족하지 않았다면"). 11/15 에 고침
+- v2 Haiku 에서 2개 미만으로 떨어진 경우는 전부 필터 오탐이었다 ("얘기하는 게 좋다면", "부족하지 않았다면"). 11/15 에 고침

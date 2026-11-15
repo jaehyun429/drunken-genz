@@ -59,7 +59,8 @@ class GenerationOutcome(BaseModel):
     input_hash: str
     model: str
     prompt_version: str
-    attempts: int
+    attempts: int                        # LLM 호출 시도 수 (다시 묻기 포함)
+    reasks: int = 0                      # 질문이 모자라 다시 물은 횟수
 
 
 # LLM 에 강제할 JSON 스키마 (vLLM structured output)
