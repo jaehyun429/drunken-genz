@@ -545,6 +545,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ## 3. FastAPI 백그라운드
 
 - 경험 공개 확정 시 임베딩 생성 — `experience` UPDATE 중 `published_at`·`visibility` 가 바뀔 때만 DB 웹훅 → `POST /v1/internal/experience-published`. 비공개로 내릴 때도 같은 주소 (서버가 `visibility` 보고 분기: 비공개면 그 카드를 담은 `related_cache` 재계산). 웹훅 재전송이 없어 서버 sweep 이 `visibility <> 'private' and embedding is null` 을 보충 `[v0.3.1]`
+- 공개된 경험 삭제 시 — `experience` DELETE 중 지워진 행이 공개(`visibility <> 'private'`)였을 때만 DB 웹훅 → 같은 주소 `POST /v1/internal/experience-published`, `type: "DELETE"`. Supabase 기본 모양 그대로라 `record` 는 `null`, 서버는 `old_record.id` 만 읽는다. 처리는 비공개 내림과 같음 (그 카드를 담은 `related_cache` 재계산). 웹훅이 빠져도 조회할 때 사라진 카드는 걸러지고 다시 계산됨 `[v0.3.1]`
 - 새 공개 카드 → ~~`saved = true`인 질문들~~ **`notify_on_related` 가 켜진 질문**과 매칭 → `related_new` 켬 → **매일 09:00 KST** 사용자당 `related_found` 알림 하나 (경험 수는 질문 여러 개에 맞아도 한 번만 셈, 내 경험이 내 질문에 맞는 건 제외) `[v0.3.1]`
 - 방해 금지(22~08)에 쌓인 알림 → 08:00 에 하나로 묶어 푸시 `[v0.3.1]`
 - 5분마다 sweep: `question_batch` 없는 경험 → 질문 생성 `[v0.3.1]`
