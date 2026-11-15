@@ -79,3 +79,19 @@ def test_zero_then_reask_recovers(monkeypatch):
 def test_source_is_matched_to_the_record(monkeypatch):
     fake, out = run(monkeypatch, [GOOD1, GOOD2])
     assert out.questions[1].source == "결과가 숫자로 평가됐다"
+
+
+def test_same_fact_drop_triggers_a_reask(monkeypatch):
+    """같은 사실을 두 번 물어 하나가 빠지면 2개가 안 되니 다시 묻는다 (11/15 Qwen f05 꼴)."""
+    e = ExperienceInput(id="e5", activity_name="편의점 야간 알바", genre="알바", role="야간 근무", period_start="2025-06",
+                        did_chips=["판매", "고객 응대"], conditions={"규모": "혼자"}, situation_chips=["혼자 결정해야 했다"],
+                        one_liner="새벽에 취객 상대하는 법을 배웠다.")
+    first = [q("혼자 근무가 아니라 두 명이 함께였다면, 취객 응대 방식이 달라졌을까?", axis="scale", source="규모=혼자"),
+             q("혼자 결정해야 하는 상황이 아니라면, 취객 상대할 때 어떤 선택을 했을까?", type="imagine", axis="situation",
+               source="혼자 결정해야 했다")]
+    second = [q("판매 말고 발주를 맡아본다면 어떨까?", source="판매")]
+    fake = Fake(first, second)
+    monkeypatch.setattr(gen, "complete_json", fake)
+    out = asyncio.run(gen.generate(e, []))
+    assert out.reasks == 1 and "같은 사실을 두 번 물음" in fake.users[1]
+    assert [x.text for x in out.questions] == [first[0]["text"], second[0]["text"]]

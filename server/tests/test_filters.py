@@ -109,3 +109,47 @@ def test_caps_at_max_and_validates_done_id():
     assert len(kept) == QUESTION_MAX
     assert kept[0].done_experience_id is None   # 목록에 없는 id 는 버림
     assert kept[1].done_experience_id == "e2"
+
+
+# --- 같은 사실을 축만 바꿔 두 번 묻는 것 ------------------------------------
+from app.questions.schemas import ExperienceInput
+
+ALONE = ExperienceInput(id="e1", activity_name="편의점 야간 알바", genre="알바", role="야간 근무", period_start="2025-06",
+                        did_chips=["판매"], conditions={"규모": "혼자", "방식": "오프라인", "내 역할": "팀원"},
+                        situation_chips=["혼자 결정해야 했다"])
+
+
+def test_same_fact_words_are_condition_values_found_in_situation_chips():
+    assert filters.same_fact_words(ALONE) == {"혼자"}
+    logged = ExperienceInput(**{**ALONE.model_dump(), "situation_chips": [],
+                                "logs": [{"log_date": "2025-07-01", "situation_chips": ["혼자 결정해야 했다"]}]})
+    assert filters.same_fact_words(logged) == {"혼자"}, "회차 기록의 상황 칩도 본다"
+    assert filters.same_fact_words(ExperienceInput(**{**ALONE.model_dump(), "situation_chips": ["시간이 부족했다"]})) == set()
+
+
+def test_drops_second_question_that_flips_the_same_fact_on_another_axis():
+    # 11/15 Qwen f05 실제 출력. 글자 유사도는 0.12 라 겹침 규칙으로는 안 잡힌다
+    raw = [q("혼자 근무가 아니라 두 명이 함께였다면, 취객 응대 방식이 달라졌을까?", axis="scale"),
+           q("혼자 결정해야 하는 상황이 아니라면, 취객 상대할 때 어떤 선택을 했을까?", type="imagine", axis="situation")]
+    kept, dropped = filters.apply(raw, OTHERS, filters.same_fact_words(ALONE))
+    assert [k.axis for k in kept] == ["scale"] and dropped == [(raw[1]["text"], filters.SAME_FACT)]
+    kept, dropped = filters.apply(raw, OTHERS)
+    assert len(kept) == 2, "낱말을 안 주면 보지 않는다"
+
+
+def test_same_fact_rule_leaves_different_questions_alone():
+    words = filters.same_fact_words(ALONE)
+    pairs = [
+        # 한쪽만 그 낱말을 바꾼다 (11/15 Qwen f04 꼴)
+        (q("혼자 결정해야 했던 상황이 아니라면, 아이에게 다른 접근을 했을까?", type="imagine", axis="situation"),
+         q("2~5명이 아닌, 1명만 집중해서 멘토링을 해볼까?", axis="scale")),
+        # 낱말은 둘 다 있지만 한쪽은 그걸 바꾸지 않는다
+        (q("혼자 근무가 아니라 두 명이 함께였다면 어땠을까?", axis="scale"),
+         q("혼자 있는 새벽에 손님이 몰리지 않았다면 어땠을까?", type="imagine", axis="situation")),
+        # 같은 축이면 글자 겹침 규칙에 맡긴다
+        (q("혼자 말고 둘이서 근무해보면 어떨까?", axis="scale"),
+         q("혼자 대신 여섯 명 넘는 매장에서 일해보면 어떨까?", axis="scale")),
+    ]
+    for a, b in pairs:
+        kept, dropped = filters.apply([a, b], OTHERS, words)
+        assert len(kept) == 2, (a["text"], b["text"], dropped)

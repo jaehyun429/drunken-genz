@@ -2,7 +2,7 @@
 규칙으로 잡히는 것만 잡는다. 애매한 건 통과시키고 사람이 본다."""
 from __future__ import annotations
 import re
-from .schemas import GeneratedQuestion, AXES_TRY, AXES_IMAGINE
+from .schemas import ExperienceInput, GeneratedQuestion, AXES_TRY, AXES_IMAGINE
 from ..constants import QUESTION_TEXT_MAX, QUESTION_MAX, QUESTION_DEDUPE_SIMILARITY
 
 # 패턴 → 이유. 질문 본문에 걸리면 버림.
@@ -65,8 +65,41 @@ def similarity(a: str, b: str) -> float:
     return len(A & B) / len(A | B) if A and B else 0.0
 
 
-def apply(raw: list[dict], other_ids: set[str]) -> tuple[list[GeneratedQuestion], list[tuple[str, str]]]:
-    """모델 출력 → (살린 질문, 버린 것과 이유). 순서는 모델이 준 순서(우선순위) 유지."""
+# 같은 사실 하나를 축만 바꿔 두 번 묻는 것 (프롬프트 10번). 글자 겹침으로는 안 잡힌다 (11/15 Qwen f05: 유사도 0.12).
+# 규칙으로 가를 수 있는 한 가지 꼴만 본다: 조건 값이 상황 칩에도 적혀 있고(규모=혼자 ↔ "혼자 결정해야 했다"),
+# 두 질문이 다른 축에서 그 낱말을 "~가 아니라·말고·대신"으로 바꾼 경우.
+# 더 넓은 규칙(바꾸는 구절에 같은 낱말)은 저장된 Haiku 296쌍에서 7쌍을 잡았는데 5쌍이 서로 다른 질문이었다.
+SAME_FACT = "같은 사실을 두 번 물음"
+_NEGATE = re.compile(r"아니라|아닌|아니었|말고|대신")
+
+
+def same_fact_words(e: ExperienceInput) -> frozenset[str]:
+    """조건 값 가운데 상황 칩(회차 기록 포함) 안에도 나오는 낱말."""
+    chips = list(e.situation_chips)
+    for lg in e.logs:
+        chips += lg.situation_chips
+    words = set()
+    for v in e.conditions.values():
+        for x in (v if isinstance(v, list) else [v]):
+            w = (x or "").strip()
+            if len(w) >= 2 and any(w in c for c in chips):
+                words.add(w)
+    return frozenset(words)
+
+
+def _negates(word: str, text: str) -> bool:
+    m = _NEGATE.search(text)
+    return bool(m) and word in text[:m.start()]
+
+
+def same_fact(text: str, axis: str, other: GeneratedQuestion, words: frozenset[str]) -> bool:
+    return axis != other.axis and any(_negates(w, text) and _negates(w, other.text) for w in words)
+
+
+def apply(raw: list[dict], other_ids: set[str],
+          fact_words: frozenset[str] = frozenset()) -> tuple[list[GeneratedQuestion], list[tuple[str, str]]]:
+    """모델 출력 → (살린 질문, 버린 것과 이유). 순서는 모델이 준 순서(우선순위) 유지.
+       fact_words 는 same_fact_words(경험). 비우면 같은 사실 겹침은 보지 않는다."""
     kept: list[GeneratedQuestion] = []
     dropped: list[tuple[str, str]] = []
     for item in raw:
@@ -91,6 +124,8 @@ def apply(raw: list[dict], other_ids: set[str]) -> tuple[list[GeneratedQuestion]
             dropped.append((text, reason)); continue
         if any(similarity(text, k.text) >= QUESTION_DEDUPE_SIMILARITY for k in kept):
             dropped.append((text, "겹치는 질문")); continue
+        if any(same_fact(text, axis, k, fact_words) for k in kept):
+            dropped.append((text, SAME_FACT)); continue
         done = item.get("done_experience_id")
         if done and done not in other_ids:
             done = None  # 목록에 없는 id 를 지어낸 것

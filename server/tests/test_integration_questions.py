@@ -206,7 +206,9 @@ def test_sweep_picks_up_missed_webhook(env, monkeypatch):
 
     async def age():
         conn = await asyncpg.connect(DB)
-        await conn.execute("update experience set created_at = now() - interval '5 minutes' where id = $1", eid)
+        # sweep 은 오래된 순으로 SWEEP_BATCH_LIMIT 개만 집는다. 로컬 DB 에 다른 테스트가 남긴 batch 없는 경험이
+        # 쌓여 있어도 이 경험이 먼저 잡히게 제일 오래된 것으로 만든다
+        await conn.execute("update experience set created_at = now() - interval '10 years' where id = $1", eid)
         await conn.close()
     asyncio.run(age())
     r = client.post("/v1/internal/sweep", headers={"X-Webhook-Secret": "s3cret"})

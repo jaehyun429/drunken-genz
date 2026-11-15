@@ -16,8 +16,9 @@ async def generate(e: ExperienceInput, others: list[OtherExperience]) -> Generat
        걸러낸 뒤 QUESTION_MIN 미만이면 버린 이유를 알려주고 한 번 더 묻는다. 다시 물어 얻은 질문은 최소 개수를 채울 때까지만 쓴다."""
     version, system, user = build_messages(e, others)
     other_ids = {o.id for o in others}
+    fact_words = filters.same_fact_words(e)
     result = await complete_json(system, user, OUTPUT_SCHEMA)
-    kept, dropped = filters.apply(result.data.get("questions") or [], other_ids)
+    kept, dropped = filters.apply(result.data.get("questions") or [], other_ids, fact_words)
     attempts, reasks = result.attempts, 0
     while len(kept) < QUESTION_MIN and reasks < QUESTION_REASK_MAX:
         reasks += 1
@@ -31,7 +32,7 @@ async def generate(e: ExperienceInput, others: list[OtherExperience]) -> Generat
             break
         attempts += again.attempts
         # 통과한 질문을 앞에 두고 같이 걸러서, 새 질문이 앞의 것과 겹치면 빠지게 한다
-        merged, more = filters.apply([k.model_dump() for k in kept] + (again.data.get("questions") or []), other_ids)
+        merged, more = filters.apply([k.model_dump() for k in kept] + (again.data.get("questions") or []), other_ids, fact_words)
         kept = merged[:QUESTION_MIN]
         dropped += more
     if len(kept) == 0:
