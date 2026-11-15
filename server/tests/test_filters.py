@@ -44,6 +44,9 @@ PASS = [
     ("멘토가 없었다면 수업 준비를 어떻게 했을까?", "imagine", "external"),
     ("교수님이 정한 주제가 아니라 직접 고른 주제였다면 어땠을까?", "imagine", "external"),
     ("내가 팀장이었다면 회의를 어떻게 시작했을까?", "imagine", "situation"),
+    ("야간 근무 중 처리한 고객 응대 건수를 평소보다 더 늘려봤다면 어땠을까?", "try_next", "did"),            # Qwen v2
+    ("지금보다 더 작은 규모의 팀에서 같은 일을 해볼까?", "try_next", "scale"),
+    ("첫 만남들에서 먼저 말을 걸어보는 방식으로 바꿔볼까?", "try_next", "method"),
 ]
 
 
@@ -81,6 +84,13 @@ def test_drops_comparison_and_lecture():
     assert {d[1] for d in dropped} == {"남과 비교", "조언·훈계"}
 
 
+def test_drops_comparison_with_people_only():
+    for text in ("동기들보다 더 빨리 끝내려면 뭘 바꿔볼까?", "남들보다 잘 해내려면 어떤 방식을 골라볼까?",
+                 "다른 팀보다 준비를 일찍 시작했다면 어땠을까?", "남처럼 말을 많이 하는 역할을 맡아볼까?"):
+        kept, dropped = filters.apply([q(text)], OTHERS)
+        assert kept == [] and dropped[0][1] == "남과 비교", text
+
+
 def test_dedupes_similar_questions():
     kept, dropped = filters.apply([q("완성 대신 초안만 저장하는 습관을 만들어볼까?"),
                                    q("완성 대신 초안으로 만족했다면 어땠을까?", type="imagine", axis="situation"),
@@ -99,3 +109,47 @@ def test_caps_at_max_and_validates_done_id():
     assert len(kept) == QUESTION_MAX
     assert kept[0].done_experience_id is None   # 목록에 없는 id 는 버림
     assert kept[1].done_experience_id == "e2"
+
+
+# --- 같은 사실을 축만 바꿔 두 번 묻는 것 ------------------------------------
+from app.questions.schemas import ExperienceInput
+
+ALONE = ExperienceInput(id="e1", activity_name="편의점 야간 알바", genre="알바", role="야간 근무", period_start="2025-06",
+                        did_chips=["판매"], conditions={"규모": "혼자", "방식": "오프라인", "내 역할": "팀원"},
+                        situation_chips=["혼자 결정해야 했다"])
+
+
+def test_same_fact_words_are_condition_values_found_in_situation_chips():
+    assert filters.same_fact_words(ALONE) == {"혼자"}
+    logged = ExperienceInput(**{**ALONE.model_dump(), "situation_chips": [],
+                                "logs": [{"log_date": "2025-07-01", "situation_chips": ["혼자 결정해야 했다"]}]})
+    assert filters.same_fact_words(logged) == {"혼자"}, "회차 기록의 상황 칩도 본다"
+    assert filters.same_fact_words(ExperienceInput(**{**ALONE.model_dump(), "situation_chips": ["시간이 부족했다"]})) == set()
+
+
+def test_drops_second_question_that_flips_the_same_fact_on_another_axis():
+    # 11/15 Qwen f05 실제 출력. 글자 유사도는 0.12 라 겹침 규칙으로는 안 잡힌다
+    raw = [q("혼자 근무가 아니라 두 명이 함께였다면, 취객 응대 방식이 달라졌을까?", axis="scale"),
+           q("혼자 결정해야 하는 상황이 아니라면, 취객 상대할 때 어떤 선택을 했을까?", type="imagine", axis="situation")]
+    kept, dropped = filters.apply(raw, OTHERS, filters.same_fact_words(ALONE))
+    assert [k.axis for k in kept] == ["scale"] and dropped == [(raw[1]["text"], filters.SAME_FACT)]
+    kept, dropped = filters.apply(raw, OTHERS)
+    assert len(kept) == 2, "낱말을 안 주면 보지 않는다"
+
+
+def test_same_fact_rule_leaves_different_questions_alone():
+    words = filters.same_fact_words(ALONE)
+    pairs = [
+        # 한쪽만 그 낱말을 바꾼다 (11/15 Qwen f04 꼴)
+        (q("혼자 결정해야 했던 상황이 아니라면, 아이에게 다른 접근을 했을까?", type="imagine", axis="situation"),
+         q("2~5명이 아닌, 1명만 집중해서 멘토링을 해볼까?", axis="scale")),
+        # 낱말은 둘 다 있지만 한쪽은 그걸 바꾸지 않는다
+        (q("혼자 근무가 아니라 두 명이 함께였다면 어땠을까?", axis="scale"),
+         q("혼자 있는 새벽에 손님이 몰리지 않았다면 어땠을까?", type="imagine", axis="situation")),
+        # 같은 축이면 글자 겹침 규칙에 맡긴다
+        (q("혼자 말고 둘이서 근무해보면 어떨까?", axis="scale"),
+         q("혼자 대신 여섯 명 넘는 매장에서 일해보면 어떨까?", axis="scale")),
+    ]
+    for a, b in pairs:
+        kept, dropped = filters.apply([a, b], OTHERS, words)
+        assert len(kept) == 2, (a["text"], b["text"], dropped)

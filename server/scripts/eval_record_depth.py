@@ -37,7 +37,7 @@ async def one(sem, variant, d, others, rep):
             out = await generate(e, others)
             qs = [q.model_dump() for q in out.questions]
             return {"variant": variant, "id": d["id"], "rep": rep, "n": len(qs), "questions": qs,
-                    "dropped": [list(x) for x in out.dropped], "error": None}
+                    "dropped": [list(x) for x in out.dropped], "reasks": out.reasks, "error": None}
         except LLMModelError as err:      # 걸러낸 뒤 0개도 여기로 온다
             return {"variant": variant, "id": d["id"], "rep": rep, "n": 0, "questions": [], "dropped": [], "error": f"model: {err}"}
         except LLMConnectionError as err:
@@ -63,7 +63,7 @@ async def main(reps: int, out_path: str | None):
 
     ids = [d["id"] for d in data]
     print(f"\n판마다 {reps}번씩. 칸 = 질문 개수 평균\n")
-    print(f"{'판':<24}" + "".join(f"{i:>6}" for i in ids) + f"{'평균':>7}{'최소':>5}{'2개미만':>8}{'해볼것':>7}{'상상':>6}{'버림':>6}{'연결실패':>8}")
+    print(f"{'판':<24}" + "".join(f"{i:>6}" for i in ids) + f"{'평균':>7}{'최소':>5}{'2개미만':>8}{'해볼것':>7}{'상상':>6}{'버림':>6}{'다시물음':>8}{'연결실패':>8}")
     for variant in VARIANTS:
         rs = [r for r in results if r["variant"] == variant]
         ok = [r for r in rs if r["n"] is not None]
@@ -76,7 +76,8 @@ async def main(reps: int, out_path: str | None):
         im = statistics.mean(sum(q["type"] == "imagine" for q in r["questions"]) for r in ok)
         dr = statistics.mean(len(r["dropped"]) for r in ok)
         few = sum(n < 2 for n in ns)
-        print(f"{variant:<24}{cells}{statistics.mean(ns):>7.2f}{min(ns):>5}{f'{few}/{len(ns)}':>8}{tn:>7.2f}{im:>6.2f}{dr:>6.2f}{len(rs) - len(ok):>8}")
+        ra = sum(1 for r in ok if r.get("reasks"))
+        print(f"{variant:<24}{cells}{statistics.mean(ns):>7.2f}{min(ns):>5}{f'{few}/{len(ns)}':>8}{tn:>7.2f}{im:>6.2f}{dr:>6.2f}{ra:>8}{len(rs) - len(ok):>8}")
 
 
 if __name__ == "__main__":

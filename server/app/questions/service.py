@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import asyncpg
 
 from .. import db
-from ..constants import QUESTION_REGEN_PER_DAY, TZ
+from ..constants import QUESTION_MIN, QUESTION_REGEN_PER_DAY, TZ
 from ..errors import AppError
 from ..llm.client import LLMConnectionError, LLMModelError
 from .generate import generate
@@ -97,7 +97,7 @@ async def run_batch(batch_id: uuid.UUID) -> None:
             rows = await conn.fetch(
                 "select type, axis, text, source, done_experience_id from question "
                 "where experience_id = $1 and generation = $2 order by created_at", batch["experience_id"], prev["generation"])
-            if rows:
+            if len(rows) >= QUESTION_MIN:   # 모자라게 끝난 batch 는 복사하지 않고 다시 만든다
                 await _store(conn, batch, e, [dict(r) for r in rows], h, prev["model"], prev["prompt_version"], attempts=0)
                 return
 
