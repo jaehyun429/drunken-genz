@@ -64,8 +64,8 @@ async def _seed_card(uid, activity, role, chips, one_liner, visibility="anonymou
     await conn.execute("insert into auth.users (id) values ($1) on conflict do nothing", uid)
     eid = await conn.fetchval(
         "insert into experience (user_id, activity_name, genre, role, period_start, did_chips, one_liner, visibility, "
-        " published_at, published_snapshot) values ($1, $2, '알바', $3, '2026-01', $4, $5, $6, now() - interval '2 minutes', "
-        " jsonb_build_object('activity_name', $2::text, 'genre', '알바', 'role', $3::text, 'did_chips', $4::text[], 'one_liner', $5::text)) "
+        " published_at, published_snapshot) values ($1, $2, '서비스·응대', $3, '2026-01', $4, $5, $6, now() - interval '2 minutes', "
+        " jsonb_build_object('activity_name', $2::text, 'genre', '서비스·응대', 'role', $3::text, 'did_chips', $4::text[], 'one_liner', $5::text)) "
         "returning id", uid, activity, role, chips, one_liner, visibility)
     await conn.close()
     return eid
@@ -134,7 +134,7 @@ def test_unpublish_clears_embedding_and_related_cache(env):
         await conn.execute("insert into auth.users (id) values ($1) on conflict do nothing", asker)
         qeid = await conn.fetchval(
             "insert into experience (user_id, activity_name, genre, role, period_start, did_chips) "
-            "values ($1, '카페 알바', '알바', '바리스타', '2026-01', '{판매}') returning id", asker)
+            "values ($1, '카페 알바', '서비스·응대', '바리스타', '2026-01', '{판매}') returning id", asker)
         qid = await conn.fetchval(
             "insert into question (experience_id, user_id, type, axis, text, source, source_activity_name) "
             "values ($1, $2, 'try_next', 'role', '야간에 일해보면?', '한 줄', '카페 알바') returning id", qeid, asker)

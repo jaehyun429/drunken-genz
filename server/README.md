@@ -84,8 +84,8 @@ app/embedding/       임베딩·웹훅·sweep  app/related/service.py      후�
 ```
 
 ## Supabase 에 붙일 때 (소윤과 함께)
-1. Supabase SQL Editor 에서 `db/001_jaehyun_schema.sql` → `002_jaehyun_rls.sql` 적용 (000 은 적용하지 않음. 소윤 테이블이 먼저 있어야 함)
-2. Database → Webhooks → 새 웹훅: 테이블 `experience`, 이벤트 `INSERT`, HTTP POST `https://<내 서버>/v1/internal/experience-saved`, 헤더 `X-Webhook-Secret: <WEBHOOK_SECRET>`
+1. Supabase SQL Editor 에서 `db/000_soyun_record.sql` → `001_jaehyun_schema.sql` → `002_jaehyun_rls.sql` 적용 (`000_local_supabase`·`000_stub` 은 적용하지 않음)
+2. 웹훅은 `000_soyun_record.sql` 트리거가 pg_net 으로 보냄. 대시보드에서 웹훅을 만들면 두 번 가니 만들지 않는다. Vault 에 주소·비밀값만 넣기 (`db/README.md` "소윤 웹훅 설정")
 3. `.env` 의 `SUPABASE_JWT_SECRET` 은 Settings → API → JWT Secret. `AUTH_DEV_BYPASS=0`
 4. `experience_log` 테이블은 진행 중 활동의 회차 기록을 질문 입력에 넣을 때 읽음 (소윤 테이블, 읽기만)
 

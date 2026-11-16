@@ -55,7 +55,7 @@ async def _seed():
     await conn.execute("insert into auth.users (id) values ($1)", uid)
     eid = await conn.fetchval(
         "insert into experience (user_id, activity_name, genre, role, period_start, did_chips, did_notes, one_liner) "
-        "values ($1, '교환학생', '여행', '교환학생', '2026-09', '{조사·리서치,협업 조율}', "
+        "values ($1, '교환학생', '기타', '교환학생', '2026-09', '{조사·리서치,협업 조율}', "
         "'{\"협업 조율\": \"말을 못 꺼내서 역할이 정해져버림\"}', '조용한 사람이 됐다.') returning id", uid)
     await conn.close()
     return uid, eid

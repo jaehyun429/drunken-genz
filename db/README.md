@@ -4,10 +4,12 @@ API 명세 v0.2 + 레포 CLAUDE.md(11/10 회의 반영)를 SQL 로 옮긴 것.
 
 | 파일 | 어디에 | 내용 |
 |---|---|---|
-| `000_stub_soyun_tables.sql` | **로컬 Postgres 만** | 소윤 테이블 임시 버전 (experience, block, qa, experience_public). Supabase 에 적용 금지 |
+| `000_local_supabase.sql` | **로컬 Postgres 만** | auth.users·auth.uid()·역할·기본 권한 흉내 (Supabase 엔 이미 있음) |
+| `000_soyun_record.sql` | 로컬 + Supabase | **소윤 실제 테이블**: experience, experience_log, official_activity, block + 권한·트리거·웹훅. 001 보다 먼저 |
+| `000_stub_soyun_tables.sql` | **로컬 Postgres 만** | 소윤 테이블 중 아직 임시인 것 (qa, experience_public). Supabase 에 적용 금지 |
 | `001_jaehyun_schema.sql` | 로컬 + Supabase | 내 테이블 8개 + experience.embedding + match_public_cards() |
 | `002_jaehyun_rls.sql` | 로컬 + Supabase | RLS, 컬럼 권한, 트리거 |
-| `apply_local.sh` | 맥 | Docker 로 pgvector Postgres 띄우고 000→001→002 적용 (포트 54329) |
+| `apply_local.sh` | 맥 | Docker 로 pgvector Postgres 띄우고 위 순서대로 적용 (포트 54329) |
 
 11/10 회의로 바뀐 것: `question.experience_id` 는 nullable + `on delete set null` (경험 삭제돼도 담은 질문 유지, 안 담은 건 트리거로 삭제), `source_activity_name`·`axis`·`done_experience_id`·`done_dismissed` 추가, `question_batch` 에 `trigger`(save/user)·`failure_reason`(connection/model)·`attempts` 추가.
 
@@ -156,3 +158,21 @@ API 명세 v0.2 + 레포 CLAUDE.md(11/10 회의 반영)를 SQL 로 옮긴 것.
 - 비어 있는 것: 공개 카드와 거기 달린 남의 Q&A·도움 이유·반응을 전부 지우는지, 카드만 내리고 남이 쓴 건 남기는지
 - 기본값: 전부 삭제. 익명 서비스라 "남이 쓴 글을 남긴다"가 더 설명하기 어려움
 - (소윤 테이블이 대부분이라 같이 물어보면 됨)
+
+## 소윤 웹훅 설정 (Supabase)
+
+`000_soyun_record.sql` 의 트리거가 pg_net 으로 재현 서버를 부른다. Supabase 대시보드에서 웹훅을 따로 만들지 않는다.
+주소와 비밀값은 SQL Editor 에서 Vault 에 한 번 넣는다:
+
+```sql
+select vault.create_secret('https://<서버 주소>', 'server_base_url');   -- 끝에 / 없이
+select vault.create_secret('<WEBHOOK_SECRET 과 같은 값>', 'webhook_secret');
+```
+
+| 언제 | 주소 | type |
+|---|---|---|
+| experience INSERT | `/v1/internal/experience-saved` | `INSERT` |
+| `published_at`·`visibility` 가 바뀐 UPDATE | `/v1/internal/experience-published` | `UPDATE` |
+| 공개돼 있던 행 DELETE | `/v1/internal/experience-published` | `DELETE` |
+
+로컬은 pg_net 이 없어서 `pg_notify('soyun_webhook', {path, type, id})` 로 대신한다.

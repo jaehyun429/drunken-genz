@@ -83,8 +83,8 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 | status | text | `in_progress` / `done` |
 | activity_name | text | 2~40자 |
 | official_activity_id | uuid | nullable |
-| genre | text | 9개 중 1 |
-| type | text | nullable |
+| genre | text | **분야** 9개 중 1 (화면 말은 "분야", 컬럼 이름은 그대로): `행사 운영` `개발·IT` `디자인·콘텐츠` `음악·공연` `연구·실험` `교육·멘토링` `경영·마케팅` `서비스·응대` `기타` |
+| type | text | **유형**, nullable: `동아리·학회` `팀플·공모전` `대외활동` `학생회·행사` `아르바이트` `봉사·멘토링` `수업·캡스톤` |
 | role | text | 2~20자 |
 | period_start | text | `"2026-03"` |
 | period_end | text | nullable (진행 중) |
