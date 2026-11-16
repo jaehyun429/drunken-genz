@@ -140,7 +140,7 @@ supabase.from('experience').select('*').eq('user_id', me)
 | user_id | uuid | |
 | log_date | date | 기본 오늘 |
 | situation_chips | text[] | 1~2 |
-| emotion_chips | text[] | 1 또는 2 — **지은 확인 필요** |
+| emotion_chips | text[] | **1개** (11/16 피그마 기준) |
 | one_liner | text | |
 | extras | jsonb | 접힌 선택 항목 |
 | created_at | timestamptz | |
@@ -530,7 +530,7 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 | `follow_up` 답변 저장 위치 | 지은 |
 | 공개 → 비공개 시 Q&A 데이터 보존 | 지은 |
 | `helpful_count` 화면 노출 | 지은 |
-| 회차 기록 감정 칩 개수 | 지은 |
+| ~~회차 기록 감정 칩 개수~~ → 1개 (11/16 피그마 기준) | 지은 |
 | ~~helpful_reason 유니크 단위 (카드 vs Q&A)~~ → 카드당 1번 확정 (POL-14) | 지은 `[수정 #9]` |
 | 다른 폰 이어쓰기 필요 여부 | 지은 |
 | Q&A 답변 500자·24시간 수정 규칙 출처 | 지은 `[수정 #8]` |

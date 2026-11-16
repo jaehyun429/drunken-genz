@@ -117,7 +117,7 @@ create table if not exists experience_log (
   user_id         uuid not null default auth.uid() references auth.users(id) on delete cascade,
   log_date        date not null default current_date,
   situation_chips text[] not null default '{}' check (cardinality(situation_chips) between 1 and 2),
-  emotion_chips   text[] not null default '{}' check (cardinality(emotion_chips) between 1 and 2),  -- TODO(기획): 1개인지 2개인지
+  emotion_chips   text[] not null default '{}' check (cardinality(emotion_chips) = 1),  -- 1개 (11/16 피그마 기준)
   one_liner       text check (char_length(one_liner) <= 100),
   extras          jsonb not null default '{}' check (jsonb_typeof(extras) = 'object'),   -- 접힌 선택 항목
   created_at      timestamptz not null default now()

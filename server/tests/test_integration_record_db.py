@@ -113,6 +113,9 @@ def test_experience_log_only_on_my_in_progress_experience():
                "values ($1, $2, '{바쁨}', '{뿌듯}', '오늘은 손님이 많았다')")
         log_id = uuid.uuid4()
         await as_app(conn, me, ins, log_id, mine, fetch="execute")
+        with pytest.raises(asyncpg.CheckViolationError):           # 회차 감정 칩은 딱 1개
+            await conn.execute("insert into experience_log (id, experience_id, user_id, situation_chips, emotion_chips) "
+                               "values ($1, $2, $3, '{바쁨}', '{뿌듯,지침}')", uuid.uuid4(), mine, me)
         with pytest.raises(asyncpg.UniqueViolationError):          # 앱이 같은 id 로 다시 보내도 하나만
             await as_app(conn, me, ins, log_id, mine, fetch="execute")
         for eid in (done, theirs):                                 # 끝난 활동, 남의 경험
