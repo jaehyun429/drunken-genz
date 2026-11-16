@@ -1,5 +1,13 @@
 """글자 수·개수 제한·임계값은 전부 여기 (CLAUDE.md 12장). 화면·함수마다 숫자를 박지 않는다."""
 
+# 인증 (app/auth.py). 명세에 없는 값이라 재현이 정함 (11/16)
+AUTH_JWT_AUDIENCE = "authenticated"   # Supabase 로그인 사용자 토큰의 aud. anon·service_role 키는 aud 가 없어 걸러진다
+AUTH_JWKS_ALGS = ("ES256", "RS256")   # 공개키로 검증하는 방식. Supabase 가 낼 수 있는 비대칭 두 가지
+AUTH_JWKS_TTL_S = 600                 # 공개키를 담아 두는 시간. Supabase 쪽 캐시도 10분
+AUTH_JWKS_REFETCH_MIN_S = 30          # 모르는 kid 가 와도 이 간격보다 자주 다시 받지 않는다
+AUTH_JWKS_TIMEOUT_S = 5.0
+AUTH_JWT_LEEWAY_S = 30                # 서버 시계가 조금 달라도 방금 받은 토큰을 거절하지 않게
+
 # 질문 생성
 QUESTION_MIN = 2                 # 글이 적으면 2개 (TODO(기획): 보완 질문 추가 여부 검토 중)
 QUESTION_MAX = 4

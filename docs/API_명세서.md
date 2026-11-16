@@ -15,7 +15,7 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 
 ## 0. 공통
 
-**인증** — 모든 요청에 Supabase JWT. 앱은 `supabase.auth.getSession()`으로 꺼내서 FastAPI 호출 시 `Authorization: Bearer <token>`. FastAPI는 Supabase JWT secret으로 검증하고 `user_id`를 꺼냄.
+**인증** — 모든 요청에 Supabase JWT. 앱은 `supabase.auth.getSession()`으로 꺼내서 FastAPI 호출 시 `Authorization: Bearer <token>`. FastAPI는 Supabase가 공개하는 공개키(JWKS, `<SUPABASE_URL>/auth/v1/.well-known/jwks.json`)로 서명을 검증하고 `sub`에서 `user_id`를 꺼냄. 프로젝트의 서명 키가 ECC(P-256)라 토큰은 ES256으로 옴. 예전 방식(HS256, JWT secret)의 토큰도 secret을 넣어 둔 서버는 받음. 검증 실패는 401 `UNAUTHENTICATED`. 앱이 할 일은 그대로.
 
 **앱에 넣는 키** — `anon`만. `service_role`은 FastAPI 환경변수에만.
 
