@@ -154,6 +154,9 @@ def test_feedback_decides_what_survives_a_recompute(env):
     r = fb(offline["id"], "no")
     assert r.json()["pattern"]["hidden"] is True
     assert fb(people["id"], "edit").status_code == 400, "고친 문장 없이 edit 는 안 됨"
+    r = fb(people["id"], "edit", "가" * 61)      # ANA-01b-①: 최대 60자
+    assert r.status_code == 400 and r.json()["error"]["details"] == {"field": "edited_text", "max": 60}
+    assert fb(people["id"], "edit", "가" * 60).status_code == 200
     r = fb(people["id"], "edit", "  손님과  얘기하는 일을 골랐어요 ")
     assert r.json()["pattern"]["edited_text"] == "손님과 얘기하는 일을 골랐어요"
     assert fb(people["id"], "maybe").status_code == 400
