@@ -2,8 +2,10 @@
 규칙으로 잡히는 것만 잡는다. 애매한 건 통과시키고 사람이 본다."""
 from __future__ import annotations
 import re
-from .schemas import ExperienceInput, GeneratedQuestion, AXES_TRY, AXES_IMAGINE
-from ..constants import QUESTION_TEXT_MAX, QUESTION_MAX, QUESTION_DEDUPE_SIMILARITY, QUESTION_ENDING
+from .schemas import ExperienceInput, GeneratedQuestion, AXES_TRY, AXES_IMAGINE, AXES_WRITE_MORE, WRITE_MORE_SLOT_NAMES
+from ..constants import QUESTION_TEXT_MAX, QUESTION_CANDIDATE_MAX, QUESTION_DEDUPE_SIMILARITY, QUESTION_ENDING
+
+_AXES = {"try_next": AXES_TRY, "imagine": AXES_IMAGINE, "write_more": AXES_WRITE_MORE}
 
 # 패턴 → 이유. 질문 본문에 걸리면 버림.
 # 11/14~15 실측(Haiku·Qwen)에서 나온 오탐은 전부 여기 패턴이 넓어서였다 ("부족하지 않았다면", "얘기하는 게 좋다면", "평소보다 더").
@@ -19,7 +21,8 @@ BANNED: list[tuple[re.Pattern, str]] = [
     (re.compile(r"해야 (한다|합니다|해|돼|하지)|하는 게 (좋|낫)(?!다면|았|다는|다고)|하는 게 나[아을]|필요해요?\?"), "조언·훈계"),
     (re.compile(r"(성공|합격|통과)했을 (텐데|거야|것이다)|분명히|틀림없이"), "결과 단정"),
     (re.compile(r"(기한|마감)[을를]? 연장|AI ?없이|시간이 (두|세) ?배|무한"), "할 수 없는 가정"),
-    # 내가 한 행동을 안 했다고 뒤집는 것만. "하지" 단독은 "부족하지·불편하지 않았다면"(상황을 바꾼 상상해보기)까지 잡아서
+    # PRD 7.2 금지 13 (11/14): 내가 한 행동을 빼거나 뒤집는 가정. 규칙으로는 안 했다고 뒤집는 꼴만 잡는다.
+    # 나쁜 상황을 없애는 가정("연락 차질이 없었다면")은 허용이라 상황 부정은 건드리지 않는다. "하지" 단독은 "부족하지·불편하지 않았다면"(상황을 바꾼 상상해보기)까지 잡아서
     # "~을/를 하지"일 때만 본다
     (re.compile(r"(시작하지|외우지|쓰지|만들지|올리지|[을를] ?하지) ?않았(다면|더라면|으면)"), "잘한 일을 뒤집기만 한 질문"),
     (re.compile(r"[가-힣]{2,3}(씨|님|이가|에게)\b.*(선생|팀장|사장)"), "사람 이름 의심"),
@@ -60,8 +63,14 @@ def others_action(text: str) -> bool:
     return False
 
 
+# 11/14 부터 질문은 정해진 문장 틀을 쓴다 (PRD 7.2 문장 틀). 40자 안에서 틀이 글자의 3분의 1쯤을 차지해
+# 서로 다른 질문도 닮아 보인다. 닮음을 잴 때는 틀을 빼고 내용만 본다
+_FRAME = re.compile(r"다음 역할을 정할 때|남은 회차에서|다음엔|만약|"
+                    r"(에 지원|해)보면 어떨까요|이번 활동이 어떻게 달라질까요|어땠을까요")
+
+
 def _bigrams(s: str) -> set[str]:
-    s = re.sub(r"[\s\W_]+", "", s)
+    s = re.sub(r"[\s\W_]+", "", _FRAME.sub(" ", s))
     return {s[i:i + 2] for i in range(len(s) - 1)}
 
 
@@ -118,6 +127,11 @@ def _keep_new(qtype: str, old: GeneratedQuestion, kept: list[GeneratedQuestion])
 # 다시 물었을 때 버린 질문을 말만 바꿔 다시 내는 것 (11/15 Qwen f02 강제 확인. 다시 묻기 프롬프트에 적어도 Qwen 은 안 지킨다).
 # 형식 때문에 버린 것(출처 없음, 축 불일치, 길이, 말투)은 고쳐서 다시 내는 게 맞으니 견주지 않는다.
 REPEATED = "버린 질문을 다시 냄"
+# 다시 만들기: 이전에 보여준 질문과 겹치는 해볼 것·상상해보기 (PRD 7.2 재생성). 고쳐 내도 못 받는다
+SHOWN = "이전에 보여준 질문"
+# 더 적어보기 (기능명세서 14.1): 답한 칸은 다시 묻지 않고, 한 칸에 질문은 하나
+ANSWERED_SLOT = "이미 답한 칸"
+SAME_SLOT = "같은 칸을 두 번 물음"
 _FIXABLE = re.compile(rf"^(source 없음|type 이상|축 불일치|{re.escape(TONE)})|자 초과$")
 
 
@@ -134,11 +148,13 @@ def split_repeats(raw: list[dict], dropped: list[tuple[str, str]]) -> tuple[list
     return fresh, repeats
 
 
-def apply(raw: list[dict], other_ids: set[str],
-          fact_words: frozenset[str] = frozenset()) -> tuple[list[GeneratedQuestion], list[tuple[str, str]]]:
-    """모델 출력 → (살린 질문, 버린 것과 이유). 순서는 모델이 준 순서(우선순위) 유지.
+def apply(raw: list[dict], other_ids: set[str], fact_words: frozenset[str] = frozenset(), *,
+          answered: frozenset[str] = frozenset(), previous: tuple[str, ...] | list[str] = (),
+          cap: int = QUESTION_CANDIDATE_MAX) -> tuple[list[GeneratedQuestion], list[tuple[str, str]]]:
+    """모델 출력 → (살린 후보, 버린 것과 이유). 순서는 모델이 준 순서(우선순위) 유지. 여기서 4개를 고르지 않는다 (generate.compose).
        같은 사실 겹침에서 뒤의 것을 남길 때는 앞의 것이 있던 자리에 넣는다.
-       fact_words 는 same_fact_words(경험). 비우면 같은 사실 겹침은 보지 않는다."""
+       fact_words 는 same_fact_words(경험). 비우면 같은 사실 겹침은 보지 않는다.
+       answered 는 더 적어보기에 이미 답한 칸, previous 는 이전에 보여준 질문 본문 (다시 만들기에서만)."""
     kept: list[GeneratedQuestion] = []
     dropped: list[tuple[str, str]] = []
     for item in raw:
@@ -146,13 +162,14 @@ def apply(raw: list[dict], other_ids: set[str],
         source = (item.get("source") or "").strip()
         qtype = item.get("type")
         axis = item.get("axis") or ""
+        more = qtype == "write_more"
         if not text:
             continue
-        if not source:
+        if not source and not more:   # 더 적어보기는 기록에 없는 칸을 묻는 것이라 출처를 빈 칸 이름으로 채운다
             dropped.append((text, "source 없음")); continue
-        if qtype not in ("try_next", "imagine"):
+        if qtype not in _AXES:
             dropped.append((text, "type 이상")); continue
-        if (qtype == "try_next" and axis not in AXES_TRY) or (qtype == "imagine" and axis not in AXES_IMAGINE):
+        if axis not in _AXES[qtype]:
             dropped.append((text, f"축 불일치 {qtype}/{axis}")); continue
         if len(text) > QUESTION_TEXT_MAX:
             dropped.append((text, f"{QUESTION_TEXT_MAX}자 초과")); continue
@@ -165,18 +182,28 @@ def apply(raw: list[dict], other_ids: set[str],
             dropped.append((text, TONE)); continue
         if any(similarity(text, k.text) >= QUESTION_DEDUPE_SIMILARITY for k in kept):
             dropped.append((text, "겹치는 질문")); continue
-        clash = [i for i, k in enumerate(kept) if same_fact(text, axis, k, fact_words)]
-        if clash and not (len(clash) == 1 and _keep_new(qtype, kept[clash[0]], kept)):
-            dropped.append((text, SAME_FACT)); continue
-        done = item.get("done_experience_id")
-        if done and done not in other_ids:
-            done = None  # 목록에 없는 id 를 지어낸 것
-        new = GeneratedQuestion(type=qtype, axis=axis, text=text, source=source, done_experience_id=done)
-        if clash:
-            dropped.append((kept[clash[0]].text, SAME_FACT))
-            kept[clash[0]] = new
-            continue
-        kept.append(new)
-        if len(kept) >= QUESTION_MAX:
+        if more:
+            if axis in answered:
+                dropped.append((text, ANSWERED_SLOT)); continue
+            if any(k.type == "write_more" and k.axis == axis for k in kept):
+                dropped.append((text, SAME_SLOT)); continue
+            kept.append(GeneratedQuestion(type=qtype, axis=axis, text=text, source=WRITE_MORE_SLOT_NAMES[axis]))
+        else:
+            # 넘긴 더 적어보기는 그대로 다시 보여주므로 이전 질문과 견주는 건 해볼 것·상상해보기만
+            if any(similarity(text, t) >= QUESTION_DEDUPE_SIMILARITY for t in previous):
+                dropped.append((text, SHOWN)); continue
+            clash = [i for i, k in enumerate(kept) if k.type != "write_more" and same_fact(text, axis, k, fact_words)]
+            if clash and not (len(clash) == 1 and _keep_new(qtype, kept[clash[0]], kept)):
+                dropped.append((text, SAME_FACT)); continue
+            done = item.get("done_experience_id") if qtype == "try_next" else None   # 이미 해본 것은 해볼 것에만 (PRD 7.2 구성)
+            if done and done not in other_ids:
+                done = None  # 목록에 없는 id 를 지어낸 것
+            new = GeneratedQuestion(type=qtype, axis=axis, text=text, source=source, done_experience_id=done)
+            if clash:
+                dropped.append((kept[clash[0]].text, SAME_FACT))
+                kept[clash[0]] = new
+                continue
+            kept.append(new)
+        if len(kept) >= cap:
             break
     return kept, dropped

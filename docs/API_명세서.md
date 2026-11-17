@@ -1,8 +1,8 @@
-# API 명세서 v0.3.1
+# API 명세서 v0.3.2
 
-v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영 → v0.3.1 (11/14) · 재현 섹션(질문·알림·백그라운드) 구현 기준으로 갱신
+v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영 → v0.3.1 (11/14) · 재현 섹션(질문·알림·백그라운드) 구현 기준으로 갱신 → v0.3.2 (11/17) · 질문 생성 11/14 기획 변경 반영 (4개 고정, 더 적어보기, 재생성 24시간)
 
-> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목, `[v0.3.1]`은 재현 PR 에서 바뀐 곳. 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
+> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목, `[v0.3.1]`은 재현 PR 에서 바뀐 곳, `[v0.3.2]`는 11/14 기획 변경(PRD 7.2·7.2.1, 기능명세서 14.1)을 반영한 곳. 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
 
 구조가 두 갈래라 명세도 두 부분입니다.
 
@@ -33,7 +33,7 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 | 400 | `VALIDATION_FAILED` | 글자 수·칩 개수 위반. `details.field` |
 | 409 | `VERSION_CONFLICT` | 저장 후 수정 충돌 (`updated_at` 다름) |
 | 409 | `PUBLISH_PREVIEW_STALE` | 미리보기와 확정 결과가 달라짐 |
-| 429 | `QUESTION_REGEN_LIMIT` | AI 질문 재생성 하루 1번 초과 |
+| 429 | `QUESTION_REGEN_LIMIT` | AI 질문 재생성 횟수 초과. 기록당 24시간에 1번 + 더 적어보기에 답할 때마다 1번. `details.limit`, `details.window_hours` `[v0.3.2]` |
 | 429 | `QUESTION_SAVE_LIMIT` | 질문 담기 20개 초과 |
 | 429 | `QA_DAILY_LIMIT` | Q&A 하루 5개 초과 |
 | 429 | `QA_PER_CARD_LIMIT` | Q&A 카드당 3개 초과 |
@@ -155,10 +155,10 @@ RLS: 본인만. 저장할 때 `experience_id`도 본인 경험이어야 함. 공
 | experience_id | uuid | **nullable, 경험 삭제 시 null** — 담은 질문은 경험이 지워져도 남김. 안 담은 질문은 트리거로 같이 삭제 |
 | user_id | uuid | |
 | source_activity_name | text | 출처 경험의 활동명 복사. 경험이 지워진 뒤 "삭제된 기록: {활동명}" 표시용 |
-| **type** | text | `try_next`(내가 고를 수 있는 것을 바꾼 질문) / `imagine`(고를 수 없었던 것을 바꾼 질문). 앱이 못 바꿈 |
-| **axis** | text | 바꾼 변수 하나. try_next: `role` `scale` `method` `autonomy` `did` `field` / imagine: `situation` `external`. 앱이 못 바꿈 |
-| **text** | text | 질문 본문. 앱이 못 바꿈 |
-| **source** | text | "어느 칩·어느 문장에서". 앱이 못 바꿈 |
+| **type** | text | `try_next`(내가 고를 수 있는 것을 바꾼 질문) / `imagine`(고를 수 없었던 것을 바꾼 질문) / `write_more`(더 적어보기: 기록에 안 적힌 것을 묻는 질문). 앱이 못 바꿈. **`write_more` 는 v0.3.2 에서 추가된 값** — 앱은 모르는 값이면 숨김 `[v0.3.2]` |
+| **axis** | text | 바꾼 변수 하나. try_next: `role` `scale` `method` `autonomy` `did` `field` `decision`(내가 내린 결정인 상황 칩) / imagine: `situation` `external` / write_more: 빈 칸 이름 `gap_action`(내가 한 일·이유) `gap_result`(결과·배움) `gap_situation`(상황). 앱이 못 바꿈 `[v0.3.2]` |
+| **text** | text | 질문 본문. 한 문장, 40자 이내 (PRD 7.2 제안 수치) `[v0.3.2]`. 앱이 못 바꿈 |
+| **source** | text | "어느 칩·어느 문장에서". `write_more` 는 서버가 빈 칸 이름(`내가 한 일·이유` / `결과·배움` / `상황`)을 넣음 `[v0.3.2]`. 앱이 못 바꿈 |
 | **is_done** | bool | 내 다른 기록과 겹침 (서버 판정). 앱이 못 바꿈 |
 | **done_experience_id** | uuid | 겹친다고 판정한 내 기록. nullable. 앱이 못 바꿈 |
 | done_dismissed | bool | 자동 판정이 틀렸을 때 사용자가 "아니에요" — 앱이 바꿈. 화면 표시는 `is_done and not done_dismissed` 또는 `linked_experience_id is not null` |
@@ -167,12 +167,16 @@ RLS: 본인만. 저장할 때 `experience_id`도 본인 경험이어야 함. 공
 | linked_experience_id | uuid | 해봤어요 직접 연결 — 앱이 바꿈. 내 경험만 가리킬 수 있음 (트리거) |
 | notify_on_related | bool | 관련 경험 0개일 때 "새 경험이 생기면 알려드릴까요?" 좋아요 — 앱이 바꿈 (지은 11/14) |
 | related_new | bool | 새 관련 경험이 붙었음 표시. 서버가 켜고 앱이 끔 |
+| **answer** | text | 더 적어보기에 사용자가 쓴 답. 1~80자. `write_more` 만. nullable. **앱이 직접 못 씀** → `POST /questions/{id}/answer` `[v0.3.2]` |
+| **answered_at** | timestamptz | 답한 시각. nullable. 앱은 `type = 'write_more' and answered_at is not null` 인 질문을 목록에서 숨김 `[v0.3.2]` |
 | generation | int | 재생성 회차 |
 | created_at | timestamptz | |
 
 RLS: 본인만. 앱이 update 할 수 있는 컬럼은 `saved` `memo` `linked_experience_id` `done_dismissed` `notify_on_related` `related_new` 여섯 개 — 컬럼 권한(GRANT)으로 막음. insert·delete 는 서버만. 담기 20개 제한은 앱이 먼저 카운트 읽고 막고, DB 트리거는 2차 방어 (`QUESTION_SAVE_LIMIT`).
 
-**질문 개수**: 경험 하나당 **2~4개** (11/10 회의). 내용이 적으면 2개, 억지로 채우지 않음. ~~try_next 2 + imagine 2 고정~~
+**질문 개수** `[v0.3.2]`: 경험 하나당 **4개 고정** (11/14 기획 변경). 더 적어보기 0~2개 + 나머지는 해볼 것·상상해보기 (각 1개 이상). 나머지가 4개면 2+2, 3개면 해볼 것 2 + 상상해보기 1, 2개면 1+1. 진행 중 활동도 활동 단위로 4개. 모델이 4개를 못 채우면 있는 만큼만 저장 (`TODO(기획)`). ~~2~4개 (11/10 회의)~~ ~~try_next 2 + imagine 2 고정~~
+
+**더 적어보기** `[v0.3.2]`: 한 번에 만든 질문을 `created_at` 순으로 읽으면 더 적어보기가 앞에 온다. 관련 경험 연결·담기 없음 (`saved` 를 켜면 DB 가 거부, `/related` 는 400). 답은 서버가 `answer` 에 저장하고 다음 질문 생성의 입력(기록 원문)으로 씀. 답한 칸은 다시 묻지 않음. **답을 `question` 행에 두는 건 임시** — 기록의 어느 칸에 넣을지는 `/summarize` 의 `follow_up` 답 저장 위치와 같은 문제라 지은 확인 뒤 옮길 수 있음 (5장).
 
 ### 1.3a question_batch — 질문 생성 기록 (재현) `[v0.3.1 신규]`
 
@@ -183,11 +187,13 @@ RLS: 본인만. 앱이 update 할 수 있는 컬럼은 `saved` `memo` `linked_ex
 | id | uuid | |
 | experience_id, user_id | uuid | |
 | generation | int | `question.generation`과 같음 |
-| trigger | text | `save`(저장 웹훅·sweep) / `user`(재생성 버튼). 하루 1회 제한은 `user`만 셈 |
+| trigger | text | `save`(저장 웹훅·sweep) / `user`(재생성 버튼). 재생성 횟수 제한은 `user`만 셈 |
 | status | text | `pending` / `done` / `failed` |
 | failure_reason | text | `connection`(요청 안 감·시간 초과·모델 서버 다운 → 앱이 "다시 시도" 버튼) / `model`(응답 깨짐 → 다시 눌러도 안 되니 안내만). nullable |
-| attempts | int | 서버 자동 재시도 횟수 (최대 3). 하루 횟수에 안 셈 |
-| input_hash, model, prompt_version | text | 같은 입력 해시면 LLM 안 부르고 이전 결과 복사 |
+| attempts | int | 서버 자동 재시도 횟수 (최대 3). 재생성 횟수에 안 셈 |
+| input_hash, model, prompt_version | text | 입력 해시는 기록으로 남김. ~~같은 입력 해시면 LLM 안 부르고 이전 결과 복사~~ → 재생성은 이전에 보여준 질문과 안 겹쳐야 해서 복사하지 않음 `[v0.3.2]` |
+| no_new | bool | 재생성했는데 이전 질문과 안 겹치는 새 질문이 없었음. 이때 질문은 그대로 두고 `status = done`. 앱은 "새로 만들 질문이 없어요" 표시 `[v0.3.2]` |
+| shown_texts | jsonb | 이 생성에서 보여준 질문 본문 목록. 다음 재생성이 겹치지 않게 서버가 읽음. 앱은 안 써도 됨 `[v0.3.2]` |
 | created_at, finished_at | timestamptz | |
 
 RLS: 본인 select 만. 쓰기는 서버만.
@@ -440,6 +446,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```
 - 임베딩 유사도 후보 → **LLM 재정렬 유지** + `reason` 생성. `reason`은 nullable
 - 임계값 밑이면 `items: []`
+- 더 적어보기(`write_more`) 질문은 관련 경험이 없음 → 400 `VALIDATION_FAILED` (`details.field = "question_id"`) `[v0.3.2]`
 - **처음 열 때 계산하고 캐시** (`related_cache`). 읽을 때 비공개·차단·본인 카드는 매번 다시 거름
 - **다시 계산** `[v0.3.1]` (지은 11/14): ① 결과 0개였고 사용자가 `notify_on_related` 를 켠 질문 → 새 공개 카드가 생기면 재계산, 붙으면 `related_new` 켜고 하루 한 번 09:00 `related_found` 알림 ② 카드가 비공개·삭제되면 그 카드를 담고 있던 캐시 재계산 ③ 질문 재생성 시 캐시 삭제
 - 후보는 `match_public_cards(query_embedding, me)` (임베딩 코사인, 임계값 0.35 — 실제 데이터로 조정). 차단·본인 제외는 서버가 요청자 id 로
@@ -485,7 +492,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ~~**호출 주체 결정 필요**~~ → **서버**. 흐름:
 1. `experience` INSERT → Supabase DB 웹훅 → `POST /v1/internal/experience-saved` (헤더 `X-Webhook-Secret`, 값은 Vault). 재전송 없는 웹훅이라 서버가 5분마다 `question_batch` 없는 경험을 찾아 보충(sweep)
 2. 서버가 `question_batch` 를 `pending` 으로 만들고 백그라운드 생성. **앱은 `question_batch.status` 를 읽어 "준비 중" 표시**
-3. 성공 → `done`, `question` 행 2~4개. 실패 → `failed` + `failure_reason` (`connection` 이면 앱이 "다시 시도" 버튼 → `/questions/retry`, `model` 이면 안내만)
+3. 성공 → `done`, `question` 행 4개 (1.3 질문 개수) `[v0.3.2]`. 실패 → `failed` + `failure_reason` (`connection` 이면 앱이 "다시 시도" 버튼 → `/questions/retry`, `model` 이면 안내만)
 
 ~~#### POST /questions — 생성~~ 삭제. 앱이 부르는 건 아래 둘.
 
@@ -496,13 +503,26 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```json
 { "batch_id": "uuid", "generation": 2, "status": "pending" }   // 202. 결과는 question_batch · question 테이블에서
 ```
-하루 1회 (KST 자정 기준, `trigger='user'` 만 셈). 초과 → 429 `QUESTION_REGEN_LIMIT`. 남의 경험 → 404. 담은(`saved`) 질문은 남기고 나머지 삭제, 지워진 질문의 `related_cache` 도 삭제. 같은 입력 해시면 LLM 안 부르고 이전 결과 복사. `TODO(기획)`: 기록을 고치면 자동 재생성할지 (현재는 버튼만), "기록할 때마다 1회"로 바뀔 가능성
+`[v0.3.2]` **횟수**: 기록당 **24시간에 1회** + 더 적어보기에 답할 때마다 1회 추가 (`trigger='user'` 만 셈). 서버 계산: 지난 24시간의 재생성 수 < 1 + 지난 24시간에 답한 더 적어보기 수. 초과 → 429 `QUESTION_REGEN_LIMIT`. 남의 경험 → 404. ~~하루 1회 (KST 자정 기준)~~
+
+**결과**: 이전에 보여준 질문(`question_batch.shown_texts` 전체 + 지금 남아 있는 질문)과 겹치지 않는 질문만 새로 만든다. 담은(`saved`) 질문과 답한 더 적어보기는 남기고 나머지 삭제, 지워진 질문의 `related_cache` 도 삭제. 겹치지 않는 질문이 하나도 없으면 **아무것도 지우지 않고** `question_batch.no_new = true` → 앱이 "새로 만들 질문이 없어요". ~~같은 입력 해시면 LLM 안 부르고 이전 결과 복사~~
+
+`TODO(기획)`: 기록을 고치면 자동 재생성할지 (현재는 버튼만) · 새 질문이 4개보다 적게 나오면 새 것만 보여줄지 · `no_new` 로 끝난 시도도 횟수에 세는지 (지금은 셈) · 답으로 생긴 1회가 언제까지 유효한지 (지금은 답한 뒤 24시간)
 
 #### POST /questions/retry
 ```json
 { "experience_id": "uuid" }
 ```
-마지막 batch 가 `failed` + `connection` 일 때만. 하루 횟수에 안 셈. 그 외 상태면 400 `VALIDATION_FAILED` (`details.status`, `details.failure_reason`).
+마지막 batch 가 `failed` + `connection` 일 때만. 재생성 횟수에 안 셈. 그 외 상태면 400 `VALIDATION_FAILED` (`details.status`, `details.failure_reason`).
+
+#### POST /questions/{id}/answer — 더 적어보기 답 저장 `[v0.3.2 신규]`
+```json
+{ "text": "1~80자" }
+```
+```json
+{ "id": "uuid", "answered_at": "..." }
+```
+`type = 'write_more'` 인 내 질문만. 남의 질문·없는 질문 → 404. 다른 종류의 질문, 글자 수 위반, 이미 다른 글로 답한 질문 → 400 `VALIDATION_FAILED` (`details.field`). 같은 글로 다시 보내면 그대로 200 (재전송 대비). 저장만 하고 질문을 자동으로 다시 만들지 않는다 — 재생성 1회가 생기고, 사용자가 버튼을 누르면 답이 입력에 들어간다. "다음에"는 서버 호출 없음 (질문은 그대로 남음).
 
 #### POST /analysis
 ```json
@@ -579,6 +599,10 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 | 초성 검색 — pg_trgm으로 안 되면 | 소윤 |
 | 개수 제한을 DB 트리거로도 걸지 (앱 체크 + 서버 체크 외에) | 소윤 |
 | `follow_up` 답변 저장 위치 | 지은 |
+| 더 적어보기 답 저장 위치 — 지금은 `question.answer` (임시). `follow_up` 과 같은 문제 `[v0.3.2]` | 지은 |
+| 질문 글자 수 40자 (PRD 7.2 제안 수치) 확정 여부 `[v0.3.2]` | 지은 |
+| 한 일을 "~말고"·"~대신"으로 바꾸는 질문이 금지 13(한 일을 빼는 가정)에 걸리는지 `[v0.3.2]` | 지은 |
+| 재생성: 새 질문이 4개 미만일 때, `no_new` 가 횟수에 드는지, 답으로 생긴 1회의 유효 기간 `[v0.3.2]` | 지은 |
 | 공개 → 비공개 시 Q&A 데이터 보존 | 지은 |
 | `helpful_count` 화면 노출 | 지은 |
 | 회차 기록 감정 칩 개수 | 지은 |
@@ -589,6 +613,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 
 ## 변경 이력
 
+- v0.3.2 (11/17) — 질문 생성 11/14 기획 변경 반영 (PRD 7.2·7.2.1, 기능명세서 14.1). 질문 4개 고정, `question.type` 에 `write_more`(더 적어보기) 추가, `axis` 에 `decision`·`gap_*` 추가, `question.answer`·`answered_at`, `question_batch.no_new`·`shown_texts`, `POST /questions/{id}/answer` 신설, 재생성 24시간 1회 + 답 1개당 1회, 입력 해시 재사용 삭제, `/related` 는 더 적어보기 400. DB 는 `003_jaehyun_question_1114.sql`
 - v0.3.1 (11/14) — 재현 섹션 구현 기준 갱신. 1.3 `question` 컬럼 추가(`source_activity_name` `axis` `done_experience_id` `done_dismissed` `notify_on_related` `related_new`, `experience_id` nullable), 질문 2~4개. 1.3a `question_batch`·1.3b `related_cache`/`analysis_*` 신규. 1.4 `notification` 에 `count` `pushed_at`, 묶음 유니크. `/questions` 삭제 → 서버 웹훅 + `/questions/retry`. `GET /notifications` 삭제(앱 직접). `/related` 재계산 규칙. 3장 웹훅 주소·sweep·09:00 알림 (지은 11/14 답 반영)
 - v0.3 (11/14) — 소윤 검토 반영. 탐색·카드·반응 담당 재현으로 통일. 차단 필터를 뷰 → FastAPI 쿼리로. 14일 미답변 Q&A 삭제 → `qa.status = no_answer`로 접기 (POL-12). `/publish/confirm`에 `accept_questions` 추가, `/publish/settings` 신설. `updated_at` 트리거 자동 갱신 명시. `experience_log` 저장 시 본인 경험 확인. `/push/devices` 두 개 삭제 (앱 직접). helpful_reason 유니크 (experience_id, user_id) 확정 (POL-14). 답변 500자·24시간 규칙 `TODO(기획)`
 - v0.2 (11/09) — 앱·서버 경계 원칙 반영. 앱 직접 접근을 내 데이터로 제한, 앱이 못 바꾸는 컬럼 명시. `draft_step` 삭제, `published_at` 추가, `push_device` 테이블 신설, `helpful_count` 삭제. 탐색 목록 `/cards`·카드 상세 `/cards/{id}`·`/activities/*`·`/qa/*`·`/reactions`·`/reports`·`/profiles/{id}`·`/push/devices` 신설. `/publish` → preview/confirm/unpublish 분리. `/export` 삭제. 에러 코드 14개·형식·호환 규칙. PublicCard 통일

@@ -25,19 +25,24 @@ curl localhost:8080/v1/health
 1. 소윤 쪽 DB 웹훅(experience INSERT) → `POST /v1/internal/experience-saved` (헤더 `X-Webhook-Secret`)
 2. 서버가 `question_batch` pending 행을 만들고 백그라운드로 생성. 앱은 이 행의 `status` 를 보고 "준비 중"
 3. 성공: 안 담은 이전 질문 삭제 → 새 질문 삽입 → `done`. 실패: `failed` + `failure_reason`(`connection` → 앱이 "다시 시도" 버튼 → `POST /v1/questions/retry`, `model` → 안내만)
-4. 사용자 재생성 버튼 → `POST /v1/questions/regenerate` (JWT). 하루 1회 KST, 초과 429 `QUESTION_REGEN_LIMIT`
+4. 사용자 재생성 버튼 → `POST /v1/questions/regenerate` (JWT). 기록당 24시간에 1회 + 더 적어보기에 답할 때마다 1회, 초과 429 `QUESTION_REGEN_LIMIT`. 이전에 보여준 질문과 겹치지 않는 것만 새로 만들고, 없으면 아무것도 지우지 않고 `question_batch.no_new` 를 켠다
+5. 더 적어보기 답 → `POST /v1/questions/{id}/answer` (JWT, 1~80자). 저장만 하고 다시 만들지는 않는다. 답은 다음 생성 때 기록 원문으로 들어간다
 
 생성 한 번 안에서 하는 일 (`app/questions/generate.py`):
-- 응답을 걸러낸 뒤 2개가 안 되면 **한 번만** 다시 묻는다. 통과한 질문과 버린 질문·이유를 알려주고 모자란 개수만 받는다 (`question_reask_v1.md`). 2개까지만 채우고, 하루 횟수에 세지 않는다. 다시 물어도 모자라면 있는 것만 저장한다. 0개면 `model` 실패
+- 11/14 기획 변경(PRD 7.2, 기능명세서 14.1)부터 화면에 나가는 건 **4개 고정**이다. 모델은 후보(더 적어보기 0~2, 해볼 것 2~3, 상상해보기 2~3)를 내고 코드가 4개를 고른다 (`generate.compose`): 더 적어보기를 앞에 최대 2개, 나머지 자리는 해볼 것과 상상해보기를 번갈아. 4자리면 2+2, 3자리면 해볼 것 2 + 상상해보기 1, 2자리면 1+1
+- 질문은 40자 이내, 문장 틀은 프롬프트 v5 의 "문장 틀" 절. 틀은 프롬프트로만 맞추고 필터는 길이와 끝("요?")만 본다
+- 걸러낸 뒤 4개가 안 되거나 해볼 것·상상해보기 가운데 한 종류가 없으면 **한 번만** 다시 묻는다. 통과한 질문과 버린 질문·이유를 알려주고 모자란 종류와 개수만 받는다 (`question_reask_v2.md`). 재생성 횟수에 세지 않는다. 다시 물어도 모자라면 있는 것만 저장한다. 0개면 `model` 실패
 - 다시 받은 질문이 버린 질문과 닮았으면(겹치는 질문과 같은 기준 0.5) 받지 않는다 (`filters.split_repeats`). Qwen 은 버린 질문을 말만 바꿔 다시 낸다. 형식 때문에 버린 것(출처 없음, 축 불일치, 길이)은 고쳐서 다시 내도 받는다
 - 질문의 `source` 를 기록 글자와 맞춘다 (`source.py`). 모델이 붙인 항목 이름("한 줄: …", "역할 칩 '…'")을 떼고, 틀리게 옮긴 칩은 가장 닮은 칩으로 바꾼다. 기록에서 못 찾으면 그대로 둔다
-- 2개 미만으로 끝난 batch 는 입력 해시가 같아도 재사용하지 않는다
+- 입력 해시가 같아도 저장된 질문을 재사용하지 않는다 (11/14 부터. 재생성은 이전 질문과 안 겹쳐야 한다). 해시는 기록으로만 남긴다
+- 겹침을 잴 때는 문장 틀("다음엔 …해보면 어떨까요?")을 빼고 내용만 본다 (`filters._FRAME`). 틀이 40자의 3분의 1쯤이라 그대로 재면 서로 다른 질문도 닮아 보인다
 - 같은 사실을 축만 바꿔 두 번 물으면 하나만 남긴다 (`filters.same_fact`). 종류가 같으면 앞의 것, 다르면 버렸을 때 그 종류가 없어지는 쪽, 둘 다 하나씩이면 상상해보기를 남긴다 (해볼 것은 재료가 많아 다시 받기 쉽다). 조건 값이 상황 칩에도 적혀 있고(규모=혼자, "혼자 결정해야 했다") 두 질문이 다른 축에서 그 낱말을 "~가 아니라·말고·대신"으로 바꾼 꼴만 본다. 그 밖의 겹침은 프롬프트와 글자 겹침 규칙에 맡긴다
 
 ## DB 없이 데모
 ```bash
 python -m scripts.demo_questions          # 가짜 경험 6개 → 질문·버린 것·이유 출력
 python -m scripts.demo_questions --force-reask f02   # 첫 응답에서 하나만 남긴 것처럼 꾸며 다시 묻기를 실제 모델로 확인
+python -m scripts.demo_questions --regen f02         # 다시 만들기: 방금 낸 질문을 이전에 보여준 질문으로 주고 한 번 더
 ```
 `.env` 의 `LLM_BASE_URL` 이 GPU 서버의 vLLM 을 가리켜야 함. 맥에서는 안 닿으니 컨테이너 안에서 돌리거나 ssh 터널.
 
@@ -71,12 +76,12 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 ## 폴더
 ```
 app/config.py        환경변수        app/llm/client.py           LLM 호출·재시도·실패 분류
-app/constants.py     숫자 전부       app/llm/prompts/question_v4.md  프롬프트 (버전 붙임. 쓰는 버전은 constants 의 QUESTION_PROMPT)
+app/constants.py     숫자 전부       app/llm/prompts/question_v5.md  프롬프트 (버전 붙임. 쓰는 버전은 constants 의 QUESTION_PROMPT)
 app/errors.py        에러 형식       app/questions/prompt.py     경험 → 입력 문단·해시
 app/auth.py          JWT·웹훅 비밀   app/questions/filters.py    응답 후 걸러내기
 app/db.py            asyncpg 풀      app/questions/generate.py   호출 → 걸러내기 → 다시 묻기 → 출처 맞추기
                                      app/questions/source.py     source 를 기록 글자에 맞추기
-                                     app/llm/prompts/question_reask_v1.md  다시 물을 때 붙이는 글
+                                     app/llm/prompts/question_reask_v2.md  다시 물을 때 붙이는 글
                                      app/questions/service.py    batch·저장
                                      app/questions/router.py     엔드포인트
 app/cards/public.py  PublicCard 조립   app/related/rerank.py       LLM 재정렬·이유 걸러내기

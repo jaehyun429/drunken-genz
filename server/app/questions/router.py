@@ -43,7 +43,8 @@ class RegenerateIn(BaseModel):
 
 @router.post("/questions/regenerate", status_code=202)
 async def regenerate(body: RegenerateIn, bg: BackgroundTasks, user_id: uuid.UUID = Depends(current_user_id)):
-    """사용자 재생성 버튼. 하루 1회(KST). saved 질문은 남는다."""
+    """사용자 재생성 버튼. 기록당 24시간에 1회 + 더 적어보기에 답할 때마다 1회 (PRD 7.2, 11/14).
+       담은 질문과 답한 더 적어보기는 남는다. 이전에 보여준 질문과 안 겹치는 새 질문이 없으면 batch.no_new."""
     async with db.pool().acquire() as conn:
         owner = await conn.fetchval("select user_id from experience where id = $1", body.experience_id)
         if owner is None or owner != user_id:
@@ -55,6 +56,17 @@ async def regenerate(body: RegenerateIn, bg: BackgroundTasks, user_id: uuid.UUID
         batch = await service.start_batch(conn, body.experience_id, user_id, trigger="user")
     bg.add_task(service.run_batch, batch["id"])
     return {"batch_id": str(batch["id"]), "generation": batch["generation"], "status": "pending"}
+
+
+class AnswerIn(BaseModel):
+    text: str
+
+
+@router.post("/questions/{question_id}/answer")
+async def answer(question_id: uuid.UUID, body: AnswerIn, user_id: uuid.UUID = Depends(current_user_id)):
+    """더 적어보기에 쓴 한 줄 저장 (기능명세서 14.1). 내 write_more 질문만. 같은 글을 다시 보내면 그대로 200."""
+    async with db.pool().acquire() as conn:
+        return await service.answer_question(conn, user_id, question_id, body.text)
 
 
 @router.post("/questions/retry", status_code=202)
