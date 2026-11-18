@@ -20,11 +20,40 @@ create table if not exists official_activity (
 );
 -- 명세 1.8 의 record_count 는 컬럼으로 두지 않고 검색할 때 experience 를 센다 (값이 어긋날 일이 없게)
 
+-- 11/18 추가 (결정 01 7장). add column if not exists 라 이미 만든 Supabase 에 다시 돌려도 됨
+alter table official_activity
+  add column if not exists genre text check (genre in ('행사 운영', '개발·IT', '디자인·콘텐츠', '음악·공연', '연구·실험',
+                                                        '교육·멘토링', '경영·마케팅', '서비스·응대', '기타')),
+  add column if not exists type text check (type in ('동아리·학회', '팀플·공모전', '대외활동', '학생회·행사', '아르바이트',
+                                                      '봉사·멘토링', '수업·캡스톤')),
+  -- 같은 활동의 기수들을 묶는 글자 (결정 01 3장 c안). 비면 혼자 한 묶음. 검색은 묶음마다 최신 기수 하나만
+  add column if not exists series_key text;
+
 -- 검색용 글자: 이름 + 별칭, 소문자, 띄어쓰기 없앰. "취업 박람회" 로 "취업박람회" 를 찾게
 create or replace function activity_search_text(name text, aliases text[]) returns text
   language sql immutable as $$
   select lower(regexp_replace(name || ' ' || array_to_string(aliases, ' '), '\s', '', 'g'))
 $$;
+-- 초성 검색용: 한글 음절은 초성으로, 나머지 글자는 그대로. "취업박람회" → "ㅊㅇㅂㄹㅎ" (11/18, 피그마 REC-01-③)
+create or replace function hangul_initials(s text) returns text
+  language plpgsql immutable as $$
+declare
+  cho constant text[] := array['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  out text := '';
+  ch  text;
+  c   int;
+begin
+  foreach ch in array regexp_split_to_array(coalesce(s, ''), '') loop
+    c := ascii(ch);                                   -- UTF8 DB 에선 유니코드 번호
+    if c between 44032 and 55203 then                 -- 가(AC00) ~ 힣(D7A3)
+      out := out || cho[(c - 44032) / 588 + 1];
+    else
+      out := out || ch;
+    end if;
+  end loop;
+  return out;
+end $$;
+
 create index if not exists official_activity_search_idx on official_activity
   using gin (activity_search_text(name, aliases) gin_trgm_ops) where status = 'verified';
 
