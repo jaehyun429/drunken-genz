@@ -47,6 +47,7 @@ create table if not exists experience (
   status               text not null default 'done' check (status in ('in_progress', 'done')),
   activity_name        text not null check (char_length(activity_name) between 2 and 40),
   official_activity_id uuid references official_activity(id) on delete set null,
+  official_period      smallint check (official_period between 1 and 99),   -- 기수 (선택). 공식 활동마다 1~99 중 사용자가 고름 (11/20)
   -- 분야 (화면 말은 "분야", 코드 이름은 genre 유지 — 재현 코드·PublicCard 가 genre 로 읽음). 11/16 REC-02 시안
   genre                text not null check (genre in ('행사 운영', '개발·IT', '디자인·콘텐츠', '음악·공연', '연구·실험',
                                                        '교육·멘토링', '경영·마케팅', '서비스·응대', '기타')),
@@ -78,6 +79,8 @@ create table if not exists experience (
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );
+-- 11/20 추가. 이미 만든 Supabase 에 다시 돌려도 됨
+alter table experience add column if not exists official_period smallint check (official_period between 1 and 99);
 create index if not exists experience_user_created_idx on experience (user_id, created_at desc);   -- 보관소 최신순 cursor
 
 -- updated_at = 저장 후 수정의 버전. 앱은 .eq('updated_at', 받은 값 그대로) 로 수정하고 0행이면 VERSION_CONFLICT
@@ -102,10 +105,10 @@ create policy experience_own on experience for all to authenticated
 revoke all on experience from anon;
 revoke insert, update on experience from authenticated;
 grant select, delete on experience to authenticated;
-grant insert (user_id, status, activity_name, official_activity_id, genre, type, role, period_start, period_end, place,
+grant insert (user_id, status, activity_name, official_activity_id, official_period, genre, type, role, period_start, period_end, place,
               did_chips, did_notes, custom_chips, conditions, situation_chips, situation_notes, emotion_chips,
               one_liner, ai_tags, photos, pinned) on experience to authenticated;
-grant update (status, activity_name, official_activity_id, genre, type, role, period_start, period_end, place,
+grant update (status, activity_name, official_activity_id, official_period, genre, type, role, period_start, period_end, place,
               did_chips, did_notes, custom_chips, conditions, situation_chips, situation_notes, emotion_chips,
               one_liner, ai_tags, photos, pinned) on experience to authenticated;
 
