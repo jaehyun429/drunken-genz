@@ -25,19 +25,24 @@ curl localhost:8080/v1/health
 1. 소윤 쪽 DB 웹훅(experience INSERT) → `POST /v1/internal/experience-saved` (헤더 `X-Webhook-Secret`)
 2. 서버가 `question_batch` pending 행을 만들고 백그라운드로 생성. 앱은 이 행의 `status` 를 보고 "준비 중"
 3. 성공: 안 담은 이전 질문 삭제 → 새 질문 삽입 → `done`. 실패: `failed` + `failure_reason`(`connection` → 앱이 "다시 시도" 버튼 → `POST /v1/questions/retry`, `model` → 안내만)
-4. 사용자 재생성 버튼 → `POST /v1/questions/regenerate` (JWT). 하루 1회 KST, 초과 429 `QUESTION_REGEN_LIMIT`
+4. 사용자 재생성 버튼 → `POST /v1/questions/regenerate` (JWT). 기록당 24시간에 1회 + 더 적어보기에 답할 때마다 1회, 초과 429 `QUESTION_REGEN_LIMIT`. 이전에 보여준 질문과 겹치지 않는 것만 새로 만들고, 없으면 아무것도 지우지 않고 `question_batch.no_new` 를 켠다
+5. 더 적어보기 답 → `POST /v1/questions/{id}/answer` (JWT, 1~80자). 저장만 하고 다시 만들지는 않는다. 답은 다음 생성 때 기록 원문으로 들어간다
 
 생성 한 번 안에서 하는 일 (`app/questions/generate.py`):
-- 응답을 걸러낸 뒤 2개가 안 되면 **한 번만** 다시 묻는다. 통과한 질문과 버린 질문·이유를 알려주고 모자란 개수만 받는다 (`question_reask_v1.md`). 2개까지만 채우고, 하루 횟수에 세지 않는다. 다시 물어도 모자라면 있는 것만 저장한다. 0개면 `model` 실패
+- 11/14 기획 변경(PRD 7.2, 기능명세서 14.1)부터 화면에 나가는 건 **4개 고정**이다. 모델은 후보(더 적어보기 0~2, 해볼 것 2~3, 상상해보기 2~3)를 내고 코드가 4개를 고른다 (`generate.compose`): 더 적어보기를 앞에 최대 2개, 나머지 자리는 해볼 것과 상상해보기를 번갈아. 4자리면 2+2, 3자리면 해볼 것 2 + 상상해보기 1, 2자리면 1+1
+- 질문은 40자 이내, 문장 틀은 프롬프트 v5 의 "문장 틀" 절. 틀은 프롬프트로만 맞추고 필터는 길이와 끝("요?")만 본다
+- 걸러낸 뒤 4개가 안 되거나 해볼 것·상상해보기 가운데 한 종류가 없으면 **한 번만** 다시 묻는다. 통과한 질문과 버린 질문·이유를 알려주고 모자란 종류와 개수만 받는다 (`question_reask_v2.md`). 재생성 횟수에 세지 않는다. 다시 물어도 모자라면 있는 것만 저장한다. 0개면 `model` 실패
 - 다시 받은 질문이 버린 질문과 닮았으면(겹치는 질문과 같은 기준 0.5) 받지 않는다 (`filters.split_repeats`). Qwen 은 버린 질문을 말만 바꿔 다시 낸다. 형식 때문에 버린 것(출처 없음, 축 불일치, 길이)은 고쳐서 다시 내도 받는다
 - 질문의 `source` 를 기록 글자와 맞춘다 (`source.py`). 모델이 붙인 항목 이름("한 줄: …", "역할 칩 '…'")을 떼고, 틀리게 옮긴 칩은 가장 닮은 칩으로 바꾼다. 기록에서 못 찾으면 그대로 둔다
-- 2개 미만으로 끝난 batch 는 입력 해시가 같아도 재사용하지 않는다
+- 입력 해시가 같아도 저장된 질문을 재사용하지 않는다 (11/14 부터. 재생성은 이전 질문과 안 겹쳐야 한다). 해시는 기록으로만 남긴다
+- 겹침을 잴 때는 문장 틀("다음엔 …해보면 어떨까요?")을 빼고 내용만 본다 (`filters._FRAME`). 틀이 40자의 3분의 1쯤이라 그대로 재면 서로 다른 질문도 닮아 보인다
 - 같은 사실을 축만 바꿔 두 번 물으면 하나만 남긴다 (`filters.same_fact`). 종류가 같으면 앞의 것, 다르면 버렸을 때 그 종류가 없어지는 쪽, 둘 다 하나씩이면 상상해보기를 남긴다 (해볼 것은 재료가 많아 다시 받기 쉽다). 조건 값이 상황 칩에도 적혀 있고(규모=혼자, "혼자 결정해야 했다") 두 질문이 다른 축에서 그 낱말을 "~가 아니라·말고·대신"으로 바꾼 꼴만 본다. 그 밖의 겹침은 프롬프트와 글자 겹침 규칙에 맡긴다
 
 ## DB 없이 데모
 ```bash
 python -m scripts.demo_questions          # 가짜 경험 6개 → 질문·버린 것·이유 출력
 python -m scripts.demo_questions --force-reask f02   # 첫 응답에서 하나만 남긴 것처럼 꾸며 다시 묻기를 실제 모델로 확인
+python -m scripts.demo_questions --regen f02         # 다시 만들기: 방금 낸 질문을 이전에 보여준 질문으로 주고 한 번 더
 ```
 `.env` 의 `LLM_BASE_URL` 이 GPU 서버의 vLLM 을 가리켜야 함. 맥에서는 안 닿으니 컨테이너 안에서 돌리거나 ssh 터널.
 
@@ -50,7 +55,7 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 `LLM_DISABLE_THINKING=0`(vLLM 전용 `chat_template_kwargs` 안 보냄), `LLM_DETERMINISTIC=0`(`temperature`·`seed` 를 거부함) 둘 다 필요. Gemini 호환 엔드포인트도 같은 플래그로 붙지만 무료 등급은 크레딧이 없다고 402 를 낸다.
 
 ## 임베딩 (3단계)
-- 공개 확정 → 소윤 DB 웹훅 `POST /v1/internal/experience-published` → `experience.embedding` 채움. 비공개로 내려오면 비우고, 그 카드를 담은 `related_cache` 를 지움(다음 조회 때 재계산)
+- 공개 확정 → 소윤 DB 웹훅 `POST /v1/internal/experience-published` → `experience.embedding` 채움. 비공개로 내려오면 비우고, 그 카드를 담은 `related_cache` 를 지움(다음 조회 때 재계산). 공개된 경험이 삭제되면 같은 주소로 `type: "DELETE"` 가 오고(`record` 는 null, id 는 `old_record.id`) 캐시를 같은 방식으로 지움
 - 웹훅 재전송이 없어서 sweep 이 `visibility <> 'private' and embedding is null` 을 5분마다 채움. 지금 돌리기: `POST /v1/internal/sweep`
 - 넣는 글: `app/embedding/text.py` `card_text()` — 활동명·장르·역할·한 일·상황·감정·한 줄·태그 한 문단. 스냅샷(가림본) 우선
 - 백엔드: `EMBED_BACKEND=openai`(GPU 서버 vLLM, `llm_test/serve_embed.sh` 포트 18001) 또는 `local`(맥, sentence-transformers)
@@ -68,24 +73,37 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 - 끝까지 돌려보기(로컬 전용, 평가용 카드 481장 필요): `EMBED_BACKEND=local python -m scripts.demo_related [f05 ...] [--filter same_role]`, 정리는 `python -m scripts.demo_related clear`
 - 11/14 실측(Haiku 재정렬): 질문 6개에 3~5장씩, 첫 조회 4~6초(모델 로드 제외), 다시 열기 1~4ms
 
+## 분석 (5단계)
+- `POST /v1/analysis` `{force}` → `{locked, record_count, patterns, criteria, saved_questions, last_updated, has_new_records}`. 기록(경험 + 회차 기록)이 3개 미만이면 `locked: true` 이고 LLM 을 안 부른다
+- 기록마다 번호를 붙여 보낸다 (`[e1]` 경험, `[e1.l1]` 그 경험의 회차 기록). 모델은 문장과 근거 번호를 돌려주고, 서버가 번호를 `{experience_id, activity_name, log_id, log_date}` 로 바꿔 저장한다. 근거가 서로 다른 기록 2개 미만이면 버린다
+- 저장된 결과: 처음 한 번은 바로 계산한다. 그 뒤로는 저장된 것을 주고, 기록이 바뀌었으면 `has_new_records: true` 만 알린다. `force: true` 이고 기록이 바뀌었을 때만 다시 계산한다 (기록이 그대로면 `force` 여도 LLM 을 안 부른다)
+- 다시 계산할 때: "맞아요"·"수정할게요"를 받은 패턴은 남기고, 피드백이 없거나 "아직 모르겠어요"인 패턴은 지우고 새로 받는다. "아니에요"는 숨긴 채 남겨 두고 닮은 문장을 막는 데 쓴다. 사용자가 고친 문장(`edited_text`)은 모델에 보내지 않는다
+- 걸러내기(`app/analysis/filters.py`): 길이 80자, 끝이 "요.", 평가·사람 규정·조언·앞날 단정·남과 비교·연락처·"-시-" 높임, 근거 부족, 이미 있는 문장이나 숨긴 문장과 닮음. 닮음은 틀 낱말("기록이 두 개 있어요")을 뺀 문자 2-gram 이라 낱말이 거의 같은 것만 잡는다
+- `POST /v1/analysis/feedback` `{pattern_id, feedback, edited_text}` → `{pattern}`. `edit` 는 고친 문장(1~60자)이 있어야 하고, `no` 는 숨긴다. 남의 패턴은 404
+- LLM 이 실패하면 503 `AI_UNAVAILABLE` (`details.reason` = `connection` | `model`) 이고 아무것도 저장하지 않는다
+- 읽는 테이블은 본인의 `experience`, `experience_log`, `question`(담은 것), `analysis_*` 뿐. `qa`·`reaction` 은 안 읽는다 (POL-07, `tests/test_analysis_unit.py` 가 SQL 을 검사)
+- DB 없이 돌려보기: `python -m scripts.demo_analysis [f01 ...] [--feedback]` (가짜 경험 6개를 한 사람의 기록으로 가정. `--feedback` 은 첫 패턴에 "아니에요", 둘째에 "맞아요"를 누른 것처럼 꾸며 다시 분석)
+- 11/15 실측(Haiku, 가짜 경험): 5번 돌려 패턴 18개, 필터가 버린 것 0개, 전부 "요."로 끝남. 기록 8개에 7~9초. 숨긴 문장과 남긴 문장은 다시 나오지 않았다 (1번 확인). "이유를 모르겠다고 적은 기록" 근거에 뜻이 조금 다른 기록이 하나 섞인 적이 있다 (2번). **Qwen 으로는 아직 안 돌렸다**
+
 ## 폴더
 ```
 app/config.py        환경변수        app/llm/client.py           LLM 호출·재시도·실패 분류
-app/constants.py     숫자 전부       app/llm/prompts/question_v4.md  프롬프트 (버전 붙임. 쓰는 버전은 constants 의 QUESTION_PROMPT)
+app/constants.py     숫자 전부       app/llm/prompts/question_v5.md  프롬프트 (버전 붙임. 쓰는 버전은 constants 의 QUESTION_PROMPT)
 app/errors.py        에러 형식       app/questions/prompt.py     경험 → 입력 문단·해시
 app/auth.py          JWT·웹훅 비밀   app/questions/filters.py    응답 후 걸러내기
 app/db.py            asyncpg 풀      app/questions/generate.py   호출 → 걸러내기 → 다시 묻기 → 출처 맞추기
                                      app/questions/source.py     source 를 기록 글자에 맞추기
-                                     app/llm/prompts/question_reask_v1.md  다시 물을 때 붙이는 글
+                                     app/llm/prompts/question_reask_v2.md  다시 물을 때 붙이는 글
                                      app/questions/service.py    batch·저장
                                      app/questions/router.py     엔드포인트
 app/cards/public.py  PublicCard 조립   app/related/rerank.py       LLM 재정렬·이유 걸러내기
 app/embedding/       임베딩·웹훅·sweep  app/related/service.py      후보·캐시·새 카드 재계산
+app/analysis/        분석 (prompt·filters·generate·service·router)   app/llm/prompts/analysis_v1.md  분석 프롬프트
 ```
 
 ## Supabase 에 붙일 때 (소윤과 함께)
-1. Supabase SQL Editor 에서 `db/001_jaehyun_schema.sql` → `002_jaehyun_rls.sql` 적용 (000 은 적용하지 않음. 소윤 테이블이 먼저 있어야 함)
-2. Database → Webhooks → 새 웹훅: 테이블 `experience`, 이벤트 `INSERT`, HTTP POST `https://<내 서버>/v1/internal/experience-saved`, 헤더 `X-Webhook-Secret: <WEBHOOK_SECRET>`
+1. Supabase SQL Editor 에서 `db/000_soyun_record.sql` → `001_jaehyun_schema.sql` → `002_jaehyun_rls.sql` 적용 (`000_local_supabase`·`000_stub` 은 적용하지 않음)
+2. 웹훅은 `000_soyun_record.sql` 트리거가 pg_net 으로 보냄. 대시보드에서 웹훅을 만들면 두 번 가니 만들지 않는다. Vault 에 주소·비밀값만 넣기 (`db/README.md` "소윤 웹훅 설정")
 3. `.env` 의 `SUPABASE_JWT_SECRET` 은 Settings → API → JWT Secret. `AUTH_DEV_BYPASS=0`
 4. `experience_log` 테이블은 진행 중 활동의 회차 기록을 질문 입력에 넣을 때 읽음 (소윤 테이블, 읽기만)
 

@@ -1,7 +1,17 @@
+import pytest
 from app.questions import filters
-from app.constants import QUESTION_MAX
+from app.constants import QUESTION_TEXT_MAX, QUESTION_CANDIDATE_MAX
 
 OTHERS = {"e2", "e3"}
+
+# 이 파일의 예문 대부분은 11/14~15 실측에서 나온 문장이라 40자를 넘는다 (그때는 80자였다).
+# 금지 규칙을 보는 테스트라 길이는 예전 값으로 두고, 40자 제한은 맨 아래에서 따로 본다
+LEGACY_TEXT_MAX = 80
+
+
+@pytest.fixture(autouse=True)
+def legacy_length(monkeypatch):
+    monkeypatch.setattr(filters, "QUESTION_TEXT_MAX", LEGACY_TEXT_MAX)
 
 
 def q(text, type="try_next", axis="did", source="한 줄", done=None):
@@ -118,16 +128,18 @@ def test_dedupes_similar_questions():
     assert dropped[0][1] == "겹치는 질문"
 
 
-def test_caps_at_max_and_validates_done_id():
+def test_caps_candidates_and_validates_done_id():
     texts = ["다음 회의 때 첫 5분 안에 한마디만 꺼내볼까요?", "조원 한 명과 1:1로 짧은 커피 시간을 잡아볼까요?",
              "그때 역할을 먼저 정했다면 어땠을까요?", "혼자가 아니라 둘이서 맡았다면 어땠을까요?",
              "온라인으로 진행했다면 어땠을까요?", "기간을 한 달로 잡았다면 어땠을까요?"]
     raw = [q(t, type="imagine" if i >= 2 else "try_next", axis="situation" if i >= 2 else "method",
              done="e9" if i == 0 else "e2") for i, t in enumerate(texts)]
     kept, _ = filters.apply(raw, OTHERS)
-    assert len(kept) == QUESTION_MAX
+    assert len(kept) == 6 <= QUESTION_CANDIDATE_MAX, "후보는 다 남긴다. 4개 고르기는 generate.compose 가 한다"
+    assert len(filters.apply(raw, OTHERS, cap=4)[0]) == 4
     assert kept[0].done_experience_id is None   # 목록에 없는 id 는 버림
     assert kept[1].done_experience_id == "e2"
+    assert all(k.done_experience_id is None for k in kept[2:]), "이미 해본 것은 해볼 것에만 붙는다"
 
 
 # --- 같은 사실을 축만 바꿔 두 번 묻는 것 ------------------------------------
@@ -207,3 +219,65 @@ def test_same_fact_rule_leaves_different_questions_alone():
     for a, b in pairs:
         kept, dropped = filters.apply([a, b], OTHERS, words)
         assert len(kept) == 2, (a["text"], b["text"], dropped)
+
+
+# --- 11/14 기획 변경 (PRD 7.2·7.2.1) ----------------------------------------
+
+def test_drops_questions_over_forty_chars(monkeypatch):
+    monkeypatch.setattr(filters, "QUESTION_TEXT_MAX", QUESTION_TEXT_MAX)
+    ok = "다음엔 메뉴를 짜는 일도 맡아보면 어떨까요?"
+    long = "다음엔 판매만 하지 말고 계절마다 바뀌는 메뉴를 짜는 일도 한번 직접 맡아보면 어떨까요?"
+    assert QUESTION_TEXT_MAX == 40 and len(ok) <= 40 < len(long)
+    kept, dropped = filters.apply([q(ok), q(long)], OTHERS)
+    assert [k.text for k in kept] == [ok] and dropped == [(long, "40자 초과")]
+    # 줄여서 다시 내면 받는다
+    assert filters.split_repeats([q(ok)], dropped) == ([q(ok)], [])
+
+
+def test_decision_axis_belongs_to_try_next():
+    text = "다음엔 범위를 줄이지 않고 끝까지 해보면 어떨까요?"
+    assert filters.apply([q(text, axis="decision")], OTHERS)[1] == []
+    assert "축 불일치" in filters.apply([q(text, type="imagine", axis="decision")], OTHERS)[1][0][1]
+
+
+def w(text, axis="gap_action", source=""):
+    return q(text, type="write_more", axis=axis, source=source)
+
+
+def test_write_more_needs_no_source_and_gets_the_slot_name():
+    kept, dropped = filters.apply([w("그때 어떤 일을 직접 했나요?"), w("그 뒤로 어떻게 됐나요?", "gap_result", "모델이 붙인 말"),
+                                   w("그때 어떤 상황이었나요?", "gap_situation")], OTHERS)
+    assert dropped == []
+    assert [(k.axis, k.source) for k in kept] == [("gap_action", "내가 한 일·이유"), ("gap_result", "결과·배움"), ("gap_situation", "상황")]
+    # 축이 해볼 것·상상해보기 것이면 버린다. 끝맺음도 본다
+    assert "축 불일치" in filters.apply([w("그때 어떤 일을 직접 했나요?", "did")], OTHERS)[1][0][1]
+    assert filters.apply([w("그때 어떤 일을 직접 했는지 적어줘.")], OTHERS)[1][0][1] == filters.TONE
+
+
+def test_write_more_skips_answered_slots_and_asks_each_slot_once():
+    raw = [w("그 뒤로 어떻게 됐나요?", "gap_result"), w("그때 어떤 일을 직접 했나요?"), w("그 일은 왜 맡게 됐나요?")]
+    kept, dropped = filters.apply(raw, OTHERS, answered=frozenset({"gap_result"}))
+    assert [k.text for k in kept] == [raw[1]["text"]]
+    assert dropped == [(raw[0]["text"], filters.ANSWERED_SLOT), (raw[2]["text"], filters.SAME_SLOT)]
+
+
+def test_drops_questions_shown_before_but_not_write_more():
+    shown = ["다음엔 메뉴를 짜는 일도 맡아보면 어떨까요?", "그때 어떤 일을 직접 했나요?"]
+    raw = [q("다음엔 메뉴 짜는 일도 한번 맡아보면 어떨까요?"), q("다음엔 발주를 직접 넣어보면 어떨까요?"), w("그때 어떤 일을 직접 했나요?")]
+    kept, dropped = filters.apply(raw, OTHERS, previous=shown)
+    assert [k.text for k in kept] == [raw[1]["text"], raw[2]["text"]], "넘긴 더 적어보기는 다시 물어도 된다"
+    assert dropped == [(raw[0]["text"], filters.SHOWN)]
+    # 이전 질문과 겹쳐 버린 것을 말만 바꿔 다시 내면 받지 않는다
+    again = q("다음엔 메뉴를 짜는 일을 맡아보면 어떨까요?")
+    assert filters.split_repeats([again], dropped) == ([], [(again["text"], filters.REPEATED)])
+
+
+def test_similarity_ignores_the_sentence_frame():
+    """문장 틀(PRD 7.2)이 글자의 3분의 1쯤이라 틀을 넣고 재면 다른 질문도 닮아 보인다 (11/17 실측 0.48)."""
+    a, b = "다음엔 여럿이 일하는 매장에서 해보면 어떨까요?", "다음엔 여럿이 하는 팀 과제로 해보면 어떨까요?"
+    assert filters.similarity(a, b) < 0.35
+    assert filters.apply([q(a, axis="scale"), q(b, axis="scale")], OTHERS)[1] == []
+    # 틀만 다른 같은 질문은 겹친 것이다
+    same = filters.similarity("남은 회차에서 발표를 직접 맡아보면 어떨까요?", "다음엔 발표를 직접 맡아보면 어떨까요?")
+    assert same == 1.0
+    assert filters.similarity("만약 준비 기간이 한 주 더 있었다면 어땠을까요?", "만약 수업이 대면이었다면 어땠을까요?") < 0.2
