@@ -6,6 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import asyncpg
+from pydantic import ValidationError
 
 from .. import db
 from ..constants import QUESTION_MIN, QUESTION_REGEN_PER_DAY, TZ
@@ -72,7 +73,22 @@ async def start_batch(conn: asyncpg.Connection, experience_id: uuid.UUID, user_i
 
 
 async def run_batch(batch_id: uuid.UUID) -> None:
-    """백그라운드. 실패해도 예외를 밖으로 던지지 않고 batch 에 기록한다."""
+    """백그라운드. 실패해도 예외를 밖으로 던지지 않고 batch 에 기록한다.
+       _run_batch 가 처리하지 못한 예외(저장 중 DB 오류 등)도 여기서 failed 로 남긴다. pending 으로 남으면
+       앱이 '준비 중'을 계속 띄우고, 주기 점검에서는 뒤에 줄 선 batch 까지 못 돈다.
+       예외 글에는 사용자 글이 섞일 수 있어 (pydantic 은 입력값을, Postgres 는 실패한 행을 적는다) 종류 이름만 남긴다."""
+    try:
+        await _run_batch(batch_id)
+    except Exception as err:  # noqa: BLE001
+        log.error("batch %s 예상 못 한 예외: %s", batch_id, type(err).__name__)
+        try:
+            async with db.pool().acquire() as conn:
+                await _fail(conn, batch_id, "model", type(err).__name__)
+        except Exception as err2:  # noqa: BLE001
+            log.error("batch %s 실패 기록도 못 함: %s", batch_id, type(err2).__name__)
+
+
+async def _run_batch(batch_id: uuid.UUID) -> None:
     pool = db.pool()
     async with pool.acquire() as conn:
         batch = await conn.fetchrow("select * from question_batch where id = $1", batch_id)
@@ -83,6 +99,12 @@ async def run_batch(batch_id: uuid.UUID) -> None:
             others = await load_others(conn, batch["user_id"], batch["experience_id"])
         except AppError as err:
             await _fail(conn, batch_id, "model", f"입력 없음: {err.code}")
+            return
+        except ValidationError as err:
+            # 기록 모양이 모델 입력과 안 맞는다. DB 는 conditions 가 객체인지만 봐서 {"규모": 3} 같은 값이 들어올 수 있다.
+            # 다시 눌러도 같은 결과라 'model'. 값은 사용자 글이니 어느 칸인지만 남긴다
+            fields = sorted({str(x["loc"][0]) for x in err.errors() if x.get("loc")})
+            await _fail(conn, batch_id, "model", "입력 모양 오류: " + ", ".join(fields))
             return
 
         # 같은 입력 해시로 성공한 적이 있으면 LLM 안 부르고 복사 (CLAUDE.md 4장 '출력').
@@ -137,5 +159,5 @@ async def _store(conn, batch, e: ExperienceInput, qs: list[dict], h: str, model,
 async def _fail(conn, batch_id: uuid.UUID, reason: str, detail: str):
     await conn.execute(
         "update question_batch set status = 'failed', failure_reason = $2, error_detail = $3, finished_at = now() "
-        "where id = $1", batch_id, reason, detail)
+        "where id = $1 and status = 'pending'", batch_id, reason, detail)
     log.warning("batch %s 실패 (%s)", batch_id, reason)
