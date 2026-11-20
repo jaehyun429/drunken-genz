@@ -26,6 +26,13 @@ def test_masking_replaces_value_and_is_independent_of_source():
     assert snap["official_activity"] == {"name": "축제 연합", "verified": False}
 
 
+def test_period_is_kept_unless_hidden():
+    exp = dict(EXP, official_period=13)
+    assert make_snapshot(exp)[0]["official_period"] == 13
+    snap, masked = make_snapshot(exp, replaced={"official_period": None})
+    assert snap["official_period"] is None and masked == ["official_period"]
+
+
 def test_only_maskable_fields_can_be_replaced():
     with pytest.raises(ValueError):
         make_snapshot(EXP, replaced={"genre": "기타"})

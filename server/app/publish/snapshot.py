@@ -10,18 +10,19 @@ from ..constants import SNAPSHOT_VERSION
 
 # 스냅샷에 들어가는 experience 칸. 순서는 의미 없음
 SNAPSHOT_FIELDS = (
-    "status", "activity_name", "genre", "type", "role", "period_start", "period_end", "place",
+    "status", "activity_name", "official_period", "genre", "type", "role", "period_start", "period_end", "place",
     "did_chips", "did_notes", "custom_chips", "conditions",
     "situation_chips", "situation_notes", "emotion_chips", "one_liner", "ai_tags",
 )
 # 가림 값으로 바꿀 수 있는 칸 (익명 처리가 제안하는 곳). 나머지 칸은 바꾸지 않는다
-MASKABLE_FIELDS = ("activity_name", "role", "place", "one_liner")
+# 기수는 넓힐 말이 없어서 가리면 None (카드에서 빠짐). 미리보기에서 늘 가릴지 묻는다 (11/20 (a)안)
+MASKABLE_FIELDS = ("activity_name", "official_period", "role", "place", "one_liner")
 
 
-def make_snapshot(exp: dict, official: dict | None = None, replaced: dict[str, str] | None = None) -> tuple[dict, list[str]]:
+def make_snapshot(exp: dict, official: dict | None = None, replaced: dict[str, str | None] | None = None) -> tuple[dict, list[str]]:
     """experience 행 → (published_snapshot, masked).
        official: 연결된 공식 활동 행 {name, status} 또는 None.
-       replaced: 사용자가 받아들인 가림 {칸: 가린 값}. masked 는 가린 칸 이름 목록뿐 (원래 글자는 어디에도 안 남김)."""
+       replaced: 사용자가 받아들인 가림 {칸: 가린 값} (기수는 None). masked 는 가린 칸 이름 목록뿐 (원래 글자는 어디에도 안 남김)."""
     replaced = replaced or {}
     bad = set(replaced) - set(MASKABLE_FIELDS)
     if bad:

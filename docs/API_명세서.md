@@ -119,7 +119,7 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 **published_snapshot 모양 (11/20)** — 공개 확정 순간의 복사본. 키 이름은 experience 컬럼과 같음. 원본을 나중에 고쳐도 안 바뀜
 ```json
 {
-  "status": "done", "activity_name": "...", "genre": "...", "type": "..." | null, "role": "...",
+  "status": "done", "activity_name": "...", "official_period": 13 | null, "genre": "...", "type": "..." | null, "role": "...",
   "period_start": "2026-03", "period_end": "2026-06" | null, "place": "..." | null,
   "did_chips": [], "did_notes": {}, "custom_chips": [], "conditions": {},
   "situation_chips": [], "situation_notes": {}, "emotion_chips": [], "one_liner": "..." | null, "ai_tags": [],
@@ -128,6 +128,7 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 }
 ```
 - 가림을 받아들인 칸(`activity_name`·`role`·`place`·`one_liner`)은 **가린 값으로 들어감**. 원래 글자는 어디에도 안 남음
+- 기수(`official_period`)는 기본으로 들어가고, 미리보기에서 늘 "가릴까요?"를 물음. 가리면 `null` (11/20)
 - 안 넣는 것: id·user_id, 사진(공개는 나중), `pinned`, 공개 설정, 시각들
 - `masked` = 가린 칸 이름 목록 `["place", "role"]`
 - 만드는 곳: `server/app/publish/snapshot.py` `make_snapshot()`. 모양을 바꾸면 `snapshot_version`을 올림
