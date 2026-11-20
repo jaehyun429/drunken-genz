@@ -61,7 +61,7 @@ async def _sql(q, *args, fetch=None):
         await conn.close()
 
 
-def _snap(tok, role=None, genre="알바", one_liner="새벽"):
+def _snap(tok, role=None, genre="서비스·응대", one_liner="새벽"):
     return {"activity_name": f"활동{tok}", "genre": genre, "role": role or f"역할{tok}",
             "did_chips": [f"칩{tok}"], "one_liner": one_liner}
 
@@ -89,7 +89,7 @@ def question(tok, *, uid=None, text="야간에 해보면?", notify=False):
         await _sql("insert into auth.users (id) values ($1) on conflict do nothing", uid)
         eid = await _sql(
             "insert into experience (user_id, activity_name, genre, role, period_start, did_chips) "
-            "values ($1,$2,'알바',$3,'2026-01',$4) returning id", uid, f"활동{tok}", f"역할{tok}", [f"칩{tok}"], fetch="val")
+            "values ($1,$2,'서비스·응대',$3,'2026-01',$4) returning id", uid, f"활동{tok}", f"역할{tok}", [f"칩{tok}"], fetch="val")
         qid = await _sql(
             "insert into question (experience_id, user_id, type, axis, text, source, source_activity_name, notify_on_related) "
             "values ($1,$2,'try_next','method',$3,'한 일 칩',$4,$5) returning id", eid, uid, text, f"활동{tok}", notify, fetch="val")
@@ -211,10 +211,10 @@ def test_filters_are_applied_before_rerank_and_cached_separately(env):
     qid, me, _ = question(tok)
     same, _ = card(tok)
     other_role, _ = card(tok, role="매니저")
-    club, _ = card(tok, genre="동아리")
+    club, _ = card(tok, genre="행사 운영")
     assert ids(ask(client, me, qid, "different_role")) == [str(other_role)]
     assert set(ids(ask(client, me, qid, "same_role"))) == {str(same), str(club)}
-    assert ids(ask(client, me, qid, "genre:동아리")) == [str(club)]
+    assert ids(ask(client, me, qid, "genre:행사 운영")) == [str(club)]
     assert set(ids(ask(client, me, qid))) == {str(same), str(other_role), str(club)}
     n = run(_sql("select count(*) from related_cache where question_id = $1", qid, fetch="val"))
     assert n == 4
