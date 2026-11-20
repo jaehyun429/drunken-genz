@@ -28,9 +28,6 @@ alter table official_activity
                                                       '봉사·멘토링', '수업·캡스톤')),
   -- 같은 활동의 기수들을 묶는 글자 (결정 01 3장 c안). 비면 혼자 한 묶음. 검색은 묶음마다 최신 기수 하나만
   add column if not exists series_key text;
--- 같은 이름(띄어쓰기·대소문자 무시)·같은 기수는 한 행만. 목록 넣기 스크립트가 이걸로 덮어쓴다 (server/scripts/import_activities.py)
-create unique index if not exists official_activity_name_period_key
-  on official_activity (activity_search_text(name, '{}'), coalesce(period, ''));
 
 -- 검색용 글자: 이름 + 별칭, 소문자, 띄어쓰기 없앰. "취업 박람회" 로 "취업박람회" 를 찾게
 create or replace function activity_search_text(name text, aliases text[]) returns text
@@ -57,6 +54,10 @@ begin
   return out;
 end $$;
 
+-- 같은 이름(띄어쓰기·대소문자 무시)·같은 기수는 한 행만. 목록 넣기 스크립트가 이걸로 덮어쓴다 (server/scripts/import_activities.py)
+-- activity_search_text 를 쓰므로 그 함수 뒤에 있어야 함 (빈 DB 에서 순서대로 돌 때)
+create unique index if not exists official_activity_name_period_key
+  on official_activity (activity_search_text(name, '{}'), coalesce(period, ''));
 create index if not exists official_activity_search_idx on official_activity
   using gin (activity_search_text(name, aliases) gin_trgm_ops) where status = 'verified';
 
