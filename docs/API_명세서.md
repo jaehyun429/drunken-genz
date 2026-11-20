@@ -83,8 +83,9 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 | status | text | `in_progress` / `done` |
 | activity_name | text | 2~40자 |
 | official_activity_id | uuid | nullable |
-| genre | text | 9개 중 1 |
-| type | text | nullable |
+| official_period | smallint | nullable, 1~99. 기수 (공식 활동을 고른 뒤 선택). 공개 카드에도 들어감 — 미리보기에서 가리기 제안 (11/20) |
+| genre | text | **분야** 9개 중 1 (화면 말은 "분야", 컬럼 이름은 그대로): `행사 운영` `개발·IT` `디자인·콘텐츠` `음악·공연` `연구·실험` `교육·멘토링` `경영·마케팅` `서비스·응대` `기타` |
+| type | text | **유형**, nullable: `동아리·학회` `팀플·공모전` `대외활동` `학생회·행사` `아르바이트` `봉사·멘토링` `수업·캡스톤` |
 | role | text | 2~20자 |
 | period_start | text | `"2026-03"` |
 | period_end | text | nullable (진행 중) |
@@ -140,7 +141,7 @@ supabase.from('experience').select('*').eq('user_id', me)
 | user_id | uuid | |
 | log_date | date | 기본 오늘 |
 | situation_chips | text[] | 1~2 |
-| emotion_chips | text[] | 1 또는 2 — **지은 확인 필요** |
+| emotion_chips | text[] | **1개** (11/16 피그마 기준) |
 | one_liner | text | |
 | extras | jsonb | 접힌 선택 항목 |
 | created_at | timestamptz | |
@@ -531,18 +532,36 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```json
 {
   "locked": false, "record_count": 5,
-  "patterns": [ { "id": "uuid", "text": "...", "evidence": [ { "experience_id": "uuid", "activity_name": "..." } ], "feedback": null } ],
-  "criteria": { "private": "...", "public": "..." },
+  "patterns": [ { "id": "uuid", "text": "...", "evidence": [ { "experience_id": "uuid", "activity_name": "...", "log_id": null, "log_date": null } ], "feedback": null, "edited_text": null } ],
+  "criteria": { "private": null, "public": null },
   "saved_questions": [ ... ],
   "last_updated": "...", "has_new_records": false
 }
 ```
 기록 3개 미만 → `locked: true`. qa·reaction 안 읽음.
 
+`[재현 11/15 구현하면서 채움]`
+- 기록 수 = 경험 + 회차 기록. `locked: true` 면 `patterns: []`, `last_updated: null`, `has_new_records: false`
+- `evidence` 는 2개 이상. 회차 기록이 근거면 `log_id`·`log_date`("2026-10-20") 가 채워지고, 경험이 근거면 둘 다 `null` (추가 필드). 지워진 기록은 근거에서 빠지고, 근거가 2개 미만이 된 패턴은 안 내려감
+- `edited_text`: 사용자가 고친 문장 (추가 필드). 화면에는 이걸 보여주고, `text` 는 AI 가 낸 원래 문장 그대로
+- `patterns` 는 0개일 수 있음 (반복되는 게 없으면 억지로 안 만듦)
+- 처음 부르면 바로 계산. 그 뒤로는 저장된 결과를 주고, 기록이 바뀌었으면 `has_new_records: true`. 다시 계산은 `force: true` 이고 기록이 바뀌었을 때만
+- `criteria`: **뜻이 정해지지 않아 지금은 둘 다 `null`** (지은 확인 필요). 정해지면 문자열
+- `saved_questions`: 담은 질문. `question` 테이블 컬럼 그대로 (`id, experience_id, source_activity_name, type, axis, text, source, memo, is_done, done_dismissed, linked_experience_id, related_new, created_at`)
+- LLM 실패 → 503 `AI_UNAVAILABLE`, `details.reason` = `connection` | `model`. 저장된 결과는 그대로
+
 #### POST /analysis/feedback
 ```json
 { "pattern_id": "uuid", "feedback": "yes" | "edit" | "no" | "later", "edited_text": "..." }
 ```
+```json
+{ "pattern": { "id": "uuid", "text": "...", "evidence": [ ... ], "feedback": "edit", "edited_text": "...", "hidden": false } }
+```
+`[재현 11/15 구현하면서 채움]`
+- `edit` 는 `edited_text` 1~100자 필수, 없으면 400 `VALIDATION_FAILED`. 다른 값일 땐 `edited_text` 를 무시하고 전에 고친 문장은 남김
+- `no` → `hidden: true`, 목록에서 바로 빠지고 다시 분석해도 닮은 문장을 안 만듦. 다른 값으로 다시 보내면 풀림
+- `yes`·`edit` 패턴은 다시 분석해도 남고, 피드백 없음·`later` 는 새 결과로 바뀜
+- 내 패턴이 아니거나 없으면 404 `NOT_FOUND`
 
 ### 프로필 (소윤)
 
@@ -605,7 +624,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 | 재생성: 새 질문이 4개 미만일 때, `no_new` 가 횟수에 드는지, 답으로 생긴 1회의 유효 기간 `[v0.3.2]` | 지은 |
 | 공개 → 비공개 시 Q&A 데이터 보존 | 지은 |
 | `helpful_count` 화면 노출 | 지은 |
-| 회차 기록 감정 칩 개수 | 지은 |
+| ~~회차 기록 감정 칩 개수~~ → 1개 (11/16 피그마 기준) | 지은 |
 | ~~helpful_reason 유니크 단위 (카드 vs Q&A)~~ → 카드당 1번 확정 (POL-14) | 지은 `[수정 #9]` |
 | 다른 폰 이어쓰기 필요 여부 | 지은 |
 | Q&A 답변 500자·24시간 수정 규칙 출처 | 지은 `[수정 #8]` |

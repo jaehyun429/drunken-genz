@@ -55,7 +55,7 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 `LLM_DISABLE_THINKING=0`(vLLM 전용 `chat_template_kwargs` 안 보냄), `LLM_DETERMINISTIC=0`(`temperature`·`seed` 를 거부함) 둘 다 필요. Gemini 호환 엔드포인트도 같은 플래그로 붙지만 무료 등급은 크레딧이 없다고 402 를 낸다.
 
 ## 임베딩 (3단계)
-- 공개 확정 → 소윤 DB 웹훅 `POST /v1/internal/experience-published` → `experience.embedding` 채움. 비공개로 내려오면 비우고, 그 카드를 담은 `related_cache` 를 지움(다음 조회 때 재계산)
+- 공개 확정 → 소윤 DB 웹훅 `POST /v1/internal/experience-published` → `experience.embedding` 채움. 비공개로 내려오면 비우고, 그 카드를 담은 `related_cache` 를 지움(다음 조회 때 재계산). 공개된 경험이 삭제되면 같은 주소로 `type: "DELETE"` 가 오고(`record` 는 null, id 는 `old_record.id`) 캐시를 같은 방식으로 지움
 - 웹훅 재전송이 없어서 sweep 이 `visibility <> 'private' and embedding is null` 을 5분마다 채움. 지금 돌리기: `POST /v1/internal/sweep`
 - 넣는 글: `app/embedding/text.py` `card_text()` — 활동명·장르·역할·한 일·상황·감정·한 줄·태그 한 문단. 스냅샷(가림본) 우선
 - 백엔드: `EMBED_BACKEND=openai`(GPU 서버 vLLM, `llm_test/serve_embed.sh` 포트 18001) 또는 `local`(맥, sentence-transformers)
@@ -73,6 +73,18 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 - 끝까지 돌려보기(로컬 전용, 평가용 카드 481장 필요): `EMBED_BACKEND=local python -m scripts.demo_related [f05 ...] [--filter same_role]`, 정리는 `python -m scripts.demo_related clear`
 - 11/14 실측(Haiku 재정렬): 질문 6개에 3~5장씩, 첫 조회 4~6초(모델 로드 제외), 다시 열기 1~4ms
 
+## 분석 (5단계)
+- `POST /v1/analysis` `{force}` → `{locked, record_count, patterns, criteria, saved_questions, last_updated, has_new_records}`. 기록(경험 + 회차 기록)이 3개 미만이면 `locked: true` 이고 LLM 을 안 부른다
+- 기록마다 번호를 붙여 보낸다 (`[e1]` 경험, `[e1.l1]` 그 경험의 회차 기록). 모델은 문장과 근거 번호를 돌려주고, 서버가 번호를 `{experience_id, activity_name, log_id, log_date}` 로 바꿔 저장한다. 근거가 서로 다른 기록 2개 미만이면 버린다
+- 저장된 결과: 처음 한 번은 바로 계산한다. 그 뒤로는 저장된 것을 주고, 기록이 바뀌었으면 `has_new_records: true` 만 알린다. `force: true` 이고 기록이 바뀌었을 때만 다시 계산한다 (기록이 그대로면 `force` 여도 LLM 을 안 부른다)
+- 다시 계산할 때: "맞아요"·"수정할게요"를 받은 패턴은 남기고, 피드백이 없거나 "아직 모르겠어요"인 패턴은 지우고 새로 받는다. "아니에요"는 숨긴 채 남겨 두고 닮은 문장을 막는 데 쓴다. 사용자가 고친 문장(`edited_text`)은 모델에 보내지 않는다
+- 걸러내기(`app/analysis/filters.py`): 길이 80자, 끝이 "요.", 평가·사람 규정·조언·앞날 단정·남과 비교·연락처·"-시-" 높임, 근거 부족, 이미 있는 문장이나 숨긴 문장과 닮음. 닮음은 틀 낱말("기록이 두 개 있어요")을 뺀 문자 2-gram 이라 낱말이 거의 같은 것만 잡는다
+- `POST /v1/analysis/feedback` `{pattern_id, feedback, edited_text}` → `{pattern}`. `edit` 는 고친 문장(1~100자)이 있어야 하고, `no` 는 숨긴다. 남의 패턴은 404
+- LLM 이 실패하면 503 `AI_UNAVAILABLE` (`details.reason` = `connection` | `model`) 이고 아무것도 저장하지 않는다
+- 읽는 테이블은 본인의 `experience`, `experience_log`, `question`(담은 것), `analysis_*` 뿐. `qa`·`reaction` 은 안 읽는다 (POL-07, `tests/test_analysis_unit.py` 가 SQL 을 검사)
+- DB 없이 돌려보기: `python -m scripts.demo_analysis [f01 ...] [--feedback]` (가짜 경험 6개를 한 사람의 기록으로 가정. `--feedback` 은 첫 패턴에 "아니에요", 둘째에 "맞아요"를 누른 것처럼 꾸며 다시 분석)
+- 11/15 실측(Haiku, 가짜 경험): 5번 돌려 패턴 18개, 필터가 버린 것 0개, 전부 "요."로 끝남. 기록 8개에 7~9초. 숨긴 문장과 남긴 문장은 다시 나오지 않았다 (1번 확인). "이유를 모르겠다고 적은 기록" 근거에 뜻이 조금 다른 기록이 하나 섞인 적이 있다 (2번). **Qwen 으로는 아직 안 돌렸다**
+
 ## 폴더
 ```
 app/config.py        환경변수        app/llm/client.py           LLM 호출·재시도·실패 분류
@@ -86,11 +98,12 @@ app/db.py            asyncpg 풀      app/questions/generate.py   호출 → 걸
                                      app/questions/router.py     엔드포인트
 app/cards/public.py  PublicCard 조립   app/related/rerank.py       LLM 재정렬·이유 걸러내기
 app/embedding/       임베딩·웹훅·sweep  app/related/service.py      후보·캐시·새 카드 재계산
+app/analysis/        분석 (prompt·filters·generate·service·router)   app/llm/prompts/analysis_v1.md  분석 프롬프트
 ```
 
 ## Supabase 에 붙일 때 (소윤과 함께)
-1. Supabase SQL Editor 에서 `db/001_jaehyun_schema.sql` → `002_jaehyun_rls.sql` 적용 (000 은 적용하지 않음. 소윤 테이블이 먼저 있어야 함)
-2. Database → Webhooks → 새 웹훅: 테이블 `experience`, 이벤트 `INSERT`, HTTP POST `https://<내 서버>/v1/internal/experience-saved`, 헤더 `X-Webhook-Secret: <WEBHOOK_SECRET>`
+1. Supabase SQL Editor 에서 `db/000_soyun_record.sql` → `001_jaehyun_schema.sql` → `002_jaehyun_rls.sql` 적용 (`000_local_supabase`·`000_stub` 은 적용하지 않음)
+2. 웹훅은 `000_soyun_record.sql` 트리거가 pg_net 으로 보냄. 대시보드에서 웹훅을 만들면 두 번 가니 만들지 않는다. Vault 에 주소·비밀값만 넣기 (`db/README.md` "소윤 웹훅 설정")
 3. `.env` 의 `SUPABASE_JWT_SECRET` 은 Settings → API → JWT Secret. `AUTH_DEV_BYPASS=0`
 4. `experience_log` 테이블은 진행 중 활동의 회차 기록을 질문 입력에 넣을 때 읽음 (소윤 테이블, 읽기만)
 
