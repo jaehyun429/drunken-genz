@@ -226,13 +226,13 @@ RLS: 본인 전부. **남의 프로필은 FastAPI로만** (열 단위 공개라 
 | id | uuid | |
 | name | text | 공식명 |
 | organizer | text | nullable |
-| period | text | `"2026-1"` 등, 회차마다 별도 행 |
+| ~~period~~ | ~~text~~ | **없앰 (11/20)** — 활동마다 한 줄. 기수는 기록의 `experience.official_period`(1~99)로 사용자가 고름 |
 | aliases | text[] | 최대 3 |
 | status | text | `pending` / `verified`. 검색엔 `verified`만 |
 | created_by | uuid | |
 | genre | text | 분야 9개 중 하나, nullable `[11/18]` |
 | type | text | 유형 7개 중 하나, nullable `[11/18]` |
-| series_key | text | 같은 활동의 기수들을 묶는 글자, nullable `[11/18]` |
+| ~~series_key~~ | ~~text~~ | **없앰 (11/20)** — 기수 줄이 없어져서 묶을 필요 없음 |
 | ~~record_count~~ | ~~int~~ | 컬럼 없음 — 검색할 때 experience 를 셈. 5 미만이면 null |
 
 검색은 FastAPI `/activities/search`로. 앱 직접 접근 없음. 목록은 소윤이 직접 넣음 (사용자 등록 없음, 11/18).
@@ -296,13 +296,12 @@ RLS: 본인 전부. **남의 프로필은 FastAPI로만** (열 단위 공개라 
 
 #### GET /activities/search?q=
 2자 이상(띄어쓰기 빼고), 최대 5건, `verified`만. 별칭·띄어쓰기·대소문자 무시. 앞부분이 맞는 것 먼저. **초성**(`ㅊㅇㅂㄹㅎ`, 입력 중인 `취ㅇ`)으로도 찾음 `[11/18]`. 2자 미만이면 에러 대신 빈 목록.
-같은 활동의 기수(`series_key`가 같은 행)는 하나로 묶어 최신 기수만 보여주고, 기수 목록은 `periods`로 `[11/18]` (기수 고르는 화면은 명금·하영 확인 필요)
+검색에는 활동 이름만 나옴. 기수는 활동을 고른 다음 **추가 선택창**에서 1~99 중 고르고(선택), `experience.official_period`에 저장 (11/20, 명금 화면 확인)
 ```json
-{ "items": [ { "id": "uuid", "name": "...", "organizer": "...", "period": "13기", "record_count": 12 | null,
-               "genre": "행사 운영" | null, "type": "대외활동" | null,
-               "periods": [ { "id": "uuid", "period": "13기" }, { "id": "uuid", "period": "12기" } ] } ] }
+{ "items": [ { "id": "uuid", "name": "...", "organizer": "...", "record_count": 12 | null,
+               "genre": "행사 운영" | null, "type": "대외활동" | null } ] }
 ```
-`record_count`는 묶음 전체 기수의 기록 수 합. 5 미만이면 null.
+`record_count`는 그 활동에 연결된 기록 수 (기수 상관없이). 5 미만이면 null. ~~`period`, `periods`~~ 없앰 (11/20)
 
 #### ~~POST /activities~~ — 없앰 (11/18)
 ~~새 공식 활동 등록. `pending`으로 저장, 내 기록에만 연결.~~
@@ -543,6 +542,7 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 
 ## 변경 이력
 
+- 11/20 (소윤) — 기수: 공식 활동 목록에서 빼고(`period`·`series_key`·검색 `periods` 없앰) 기록에 `official_period`(1~99, 선택)로. 공개 카드에도 들어가고 미리보기에서 가리기 제안
 - 11/18 (소윤) — 공식 활동: 검색은 `verified`만 + 초성, 기수 묶음(`periods`)·분야·유형 응답에 추가. `POST /activities` 없앰 (사용자 등록 없음). `official_activity`에 `genre`·`type`·`series_key`
 - v0.3 (11/14) — 소윤 검토 반영. 탐색·카드·반응 담당 재현으로 통일. 차단 필터를 뷰 → FastAPI 쿼리로. 14일 미답변 Q&A 삭제 → `qa.status = no_answer`로 접기 (POL-12). `/publish/confirm`에 `accept_questions` 추가, `/publish/settings` 신설. `updated_at` 트리거 자동 갱신 명시. `experience_log` 저장 시 본인 경험 확인. `/push/devices` 두 개 삭제 (앱 직접). helpful_reason 유니크 (experience_id, user_id) 확정 (POL-14). 답변 500자·24시간 규칙 `TODO(기획)`
 - v0.2 (11/09) — 앱·서버 경계 원칙 반영. 앱 직접 접근을 내 데이터로 제한, 앱이 못 바꾸는 컬럼 명시. `draft_step` 삭제, `published_at` 추가, `push_device` 테이블 신설, `helpful_count` 삭제. 탐색 목록 `/cards`·카드 상세 `/cards/{id}`·`/activities/*`·`/qa/*`·`/reactions`·`/reports`·`/profiles/{id}`·`/push/devices` 신설. `/publish` → preview/confirm/unpublish 분리. `/export` 삭제. 에러 코드 14개·형식·호환 규칙. PublicCard 통일

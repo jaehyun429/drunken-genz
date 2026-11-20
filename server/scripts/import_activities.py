@@ -7,14 +7,13 @@
    CSV 칸 (첫 줄 머리글, UTF-8. 구글 시트 → 파일 → 다운로드 → CSV)
      name        필수. 2~40자. 공식 이름
      organizer   주최 (선택)
-     period      기수·연도 (선택). "13기", "2026" 등. 기수마다 한 줄
      aliases     별칭 (선택). 최대 3개, | 로 구분. 줄임말은 여기 넣어야 찾힘. 예: 과준위|과학기술준비위
      genre       분야 (선택). 9개 중 하나, 글자 그대로
      type        유형 (선택). 7개 중 하나, 글자 그대로
-     series_key  기수 묶음 (선택). 비우면 이름에서 띄어쓰기 뺀 글자 → 이름이 같으면 기수끼리 자동으로 묶임
+     기수는 안 넣음 — 활동마다 한 줄, 기수는 사용자가 기록할 때 고름 (11/20)
      그 밖의 칸 (예: source_url 확인한 곳) 은 무시. 고르는 기준은 db/seed/README.md
 
-   - 같은 이름(띄어쓰기·대소문자 무시) + 같은 기수가 이미 있으면 새로 안 만들고 나머지 칸을 덮어씀. 다시 돌려도 됨
+   - 같은 이름(띄어쓰기·대소문자 무시)이 이미 있으면 새로 안 만들고 나머지 칸을 덮어씀. 다시 돌려도 됨
    - 한 줄이라도 틀리면 몇 번째 줄이 왜 틀렸는지 출력하고 아무것도 안 넣음
    - CSV 에서 지운 줄은 DB 에서 안 지움 (기록이 이어져 있을 수 있음). 빼려면 대시보드에서 status 를 pending 으로"""
 from __future__ import annotations
@@ -22,22 +21,18 @@ from __future__ import annotations
 import asyncio
 import csv
 import os
-import pathlib
 import sys
 
 import asyncpg
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
-from app.activities import search_text  # noqa: E402
-
-COLUMNS = ["name", "organizer", "period", "aliases", "genre", "type", "series_key"]
+COLUMNS = ["name", "organizer", "aliases", "genre", "type"]
 
 _UPSERT = """
-insert into official_activity (name, organizer, period, aliases, genre, type, series_key, status)
-values ($1, $2, $3, $4, $5, $6, $7, 'verified')
-on conflict (activity_search_text(name, '{}'), coalesce(period, ''))
+insert into official_activity (name, organizer, aliases, genre, type, status)
+values ($1, $2, $3, $4, $5, 'verified')
+on conflict (activity_search_text(name, '{}'))
 do update set name = excluded.name, organizer = excluded.organizer, aliases = excluded.aliases,
-              genre = excluded.genre, type = excluded.type, series_key = excluded.series_key, status = 'verified'
+              genre = excluded.genre, type = excluded.type, status = 'verified'
 returning (xmax = 0) as inserted
 """
 
@@ -57,8 +52,7 @@ def _values(r: dict) -> tuple:
         return v or None
     name = cell("name") or ""
     aliases = [a for a in (" ".join(x.split()) for x in (r.get("aliases") or "").split("|")) if a]
-    return (name, cell("organizer"), cell("period"), aliases, cell("genre"), cell("type"),
-            cell("series_key") or search_text(name))
+    return (name, cell("organizer"), aliases, cell("genre"), cell("type"))
 
 
 async def import_csv(path: str, dsn: str, dry_run: bool = False) -> tuple[int, int, list[str]]:
@@ -97,7 +91,7 @@ def _reason(e: asyncpg.PostgresError) -> str:
     if "type" in c:
         return "유형이 7개 목록에 없음 (글자 그대로, 가운뎃점 ·)"
     if isinstance(e, asyncpg.UniqueViolationError):
-        return "같은 이름·같은 기수가 파일 안에 두 번 있음"
+        return "같은 이름이 파일 안에 두 번 있음 (띄어쓰기·대소문자 무시)"
     return type(e).__name__
 
 
