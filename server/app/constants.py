@@ -1,24 +1,31 @@
 """글자 수·개수 제한·임계값은 전부 여기 (CLAUDE.md 12장). 화면·함수마다 숫자를 박지 않는다."""
 
-# 질문 생성
-QUESTION_MIN = 2                 # 글이 적으면 2개 (TODO(기획): 보완 질문 추가 여부 검토 중)
-QUESTION_MAX = 4
-QUESTION_TEXT_MAX = 80           # 한 문장 길이 상한. 넘으면 버림
-QUESTION_REGEN_PER_DAY = 1       # 사용자 재생성 하루 1회, 한국 시간 자정 기준 (TODO(기획): "기록할 때마다 한 번"으로 바뀔 수 있음)
+# 질문 생성 (11/14 기획 변경: PRD 7.2·7.2.1, 기능명세서 14장. API 명세 v0.3.2)
+QUESTION_COUNT = 4               # 경험 하나당 4개 고정. 더 적어보기 0~2 + 나머지는 해볼 것·상상해보기 (각 1개 이상)
+                                 # TODO(기획): 모델이 4개를 못 채우면 있는 만큼만 저장한다
+QUESTION_WRITE_MORE_MAX = 2      # 더 적어보기 최대. 빈 칸 우선순위는 schemas.AXES_WRITE_MORE 순서
+QUESTION_CANDIDATE_MAX = 10      # 모델이 낸 후보 가운데 걸러낸 뒤 들고 있는 수. 여기서 4개를 고른다 (generate.compose)
+QUESTION_TEXT_MAX = 40           # 한 문장 길이 상한. 넘으면 버림. TODO(기획): PRD 7.2 의 [제안 수치]. 확정 전
+QUESTION_ANSWER_MAX = 80         # 더 적어보기 답 한 줄 (기능명세서 14.1). db/003 의 check 와 같은 값
+QUESTION_REGEN_PER_WINDOW = 1    # 사용자 재생성: 기록당 24시간에 1번
+QUESTION_REGEN_WINDOW_H = 24     #   + 그 24시간 안에 더 적어보기에 답한 수만큼 더.
+                                 # TODO(기획): 답으로 생긴 1번이 언제까지 유효한지, 새 질문이 없던 시도도 세는지 미정 (지금은 24시간, 센다)
 QUESTION_SAVE_MAX = 20           # 담기 최대
-LLM_MAX_ATTEMPTS = 3             # 서버 자동 재시도. 하루 횟수에 안 셈
+# 상황 칩 가운데 '내가 내린 결정'(PRD 6.6, 6개). 이 칩은 상상해보기가 아니라 해볼 것(axis=decision)의 재료다.
+# 띄어쓰기를 뺀 글자가 같을 때만 맞는 것으로 본다. 직접 입력한 상황 칩은 전부 '고를 수 없음'.
+# TODO(기획): 앱이 쓰는 칩 표가 레포에 없어 PRD 글자 그대로 넣었다. 칩 표가 나오면 거기서 읽는다
+QUESTION_DECISION_CHIPS = ("범위 축소", "피드백 반영", "새 형식 시도", "재실험", "원인 추적", "수업 방식 변경")
+LLM_MAX_ATTEMPTS = 3             # 서버 자동 재시도. 재생성 횟수에 안 셈
 LLM_MAX_TOKENS = 4096             # 응답 상한. 사고(thinking) 토큰까지 세는 모델이 있어 1024 는 모자람
 LLM_RETRY_BACKOFF_S = (1.0, 2.0) # 1차 실패 후 1초, 2차 실패 후 2초
-QUESTION_DEDUPE_SIMILARITY = 0.5 # 문자 2-gram 자카드. 이상이면 겹치는 질문으로 보고 뒤의 것을 버림
-QUESTION_REASK_MAX = 1           # 걸러낸 뒤 QUESTION_MIN 미만이면 버린 이유를 알려주고 다시 묻는 횟수. 하루 횟수에 안 셈
-QUESTION_REASK_PROMPT = "question_reask_v1"   # 다시 물을 때 사용자 메시지 뒤에 붙이는 글
+QUESTION_DEDUPE_SIMILARITY = 0.5 # 문자 2-gram 자카드. 이상이면 겹치는 질문으로 보고 뒤의 것을 버림. 이전에 보여준 질문과 견줄 때도 같은 값
+QUESTION_REASK_MAX = 1           # 걸러낸 뒤 4개가 안 되거나 해볼 것·상상해보기 중 하나가 없으면 다시 묻는 횟수. 재생성 횟수에 안 셈
+QUESTION_REASK_PROMPT = "question_reask_v2"   # 다시 물을 때 사용자 메시지 뒤에 붙이는 글
 QUESTION_SOURCE_SNAP_SIMILARITY = 0.6  # 출처가 기록에 없는 글자면(오타 등) 이 이상 닮은 칩·문장으로 바꾼다. 문자 2-gram 자카드
-QUESTION_PROMPT = "question_v4"  # app/llm/prompts/<이름>.md. 버전을 올리면 예전 버전으로 만든 질문은 재사용하지 않는다
-# 질문 끝맺음. 프롬프트의 말투와 짝이라 같이 바꾼다 (v4 부터 존댓말. v3 로 되돌리면 r"\?$").
-# TODO(기획): 말투는 PRD 7장 톤 규칙이 정한다. 11/15 재현 결정으로 존댓말 "~해보는 것은 어떨까요?"를 임시값으로 쓴다
+QUESTION_PROMPT = "question_v5"  # app/llm/prompts/<이름>.md
+# 질문 끝맺음. 프롬프트의 문장 틀과 짝이다. PRD 7.2 문장 틀이 전부 "요?"로 끝난다 (v3 로 되돌리면 r"\?$").
+# 문장 틀 자체("다음엔 ~해보면 어떨까요?")는 프롬프트로만 맞춘다. 필터는 끝맺음만 본다
 QUESTION_ENDING = r"요\?$"
-# TODO(기획): v2 는 상황 칩이 없는 기록에 상상해보기를 0개 낼 수 있다 (기록에 없는 상황을 지어내지 않음).
-#   두 종류가 꼭 하나씩 있어야 하는지, 앱 화면이 그걸 가정하는지 확인 필요
 
 # 주기 점검 (DB 웹훅은 실패해도 재전송이 없어서 서버가 빈 곳을 채움)
 SWEEP_INTERVAL_S = 300           # 5분마다

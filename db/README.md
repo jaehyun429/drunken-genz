@@ -9,6 +9,7 @@ API 명세 v0.2 + 레포 CLAUDE.md(11/10 회의 반영)를 SQL 로 옮긴 것.
 | `000_stub_soyun_tables.sql` | **로컬 Postgres 만** | 소윤 테이블 중 아직 임시인 것 (qa, experience_public). Supabase 에 적용 금지 |
 | `001_jaehyun_schema.sql` | 로컬 + Supabase | 내 테이블 8개 + experience.embedding + match_public_cards() |
 | `002_jaehyun_rls.sql` | 로컬 + Supabase | RLS, 컬럼 권한, 트리거 |
+| `003_jaehyun_question_1114.sql` | 로컬 + Supabase | 11/14 기획 변경: `question.type` 에 `write_more`, `answer`·`answered_at`, `question_batch.no_new`·`shown_texts`. 여러 번 돌려도 됨. **Supabase 에는 아직 적용 안 함** |
 | `apply_local.sh` | 맥 | Docker 로 pgvector Postgres 띄우고 위 순서대로 적용 (포트 54329) |
 
 11/10 회의로 바뀐 것: `question.experience_id` 는 nullable + `on delete set null` (경험 삭제돼도 담은 질문 유지, 안 담은 건 트리거로 삭제), `source_activity_name`·`axis`·`done_experience_id`·`done_dismissed` 추가, `question_batch` 에 `trigger`(save/user)·`failure_reason`(connection/model)·`attempts` 추가.
@@ -17,8 +18,8 @@ API 명세 v0.2 + 레포 CLAUDE.md(11/10 회의 반영)를 SQL 로 옮긴 것.
 
 | 테이블 | 명세 | 앱 접근 | 용도 |
 |---|---|---|---|
-| `question` | 1.3 | 읽기 / `saved`·`memo`·`linked_experience_id` 만 쓰기 | AI 질문 2+2 |
-| `question_batch` | **없음** | 읽기 | 생성 회차·입력 해시·`status`(준비 중 표시용). 하루 1회 제한 근거 |
+| `question` | 1.3 | 읽기 / `saved`·`memo`·`linked_experience_id` 만 쓰기 | AI 질문. 경험 하나당 4개 (11/14: 더 적어보기 0~2 + 해볼 것·상상해보기) |
+| `question_batch` | **없음** | 읽기 | 생성 회차·입력 해시·`status`(준비 중 표시용). 재생성 횟수 제한 근거 (11/14: 24시간 1회 + 답 1개당 1회) |
 | `related_cache` | /related 설명만 | 없음 | 관련 경험 결과 캐시. 재생성 시 cascade 로 자동 삭제 |
 | `analysis_run` | **없음** | 읽기 | 사용자당 1행. 마지막 계산 시각·기준·해시 |
 | `analysis_pattern` | /analysis 응답 모양 | 읽기 | 패턴 + 피드백. "아니에요"면 `hidden` |

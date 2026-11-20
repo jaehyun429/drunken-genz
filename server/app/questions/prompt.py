@@ -2,8 +2,8 @@
 from __future__ import annotations
 import hashlib
 import re
-from .schemas import ExperienceInput, OtherExperience
-from ..constants import QUESTION_PROMPT, QUESTION_REASK_PROMPT, QUESTION_TEXT_MAX
+from .schemas import ExperienceInput, OtherExperience, WRITE_MORE_SLOT_NAMES
+from ..constants import QUESTION_PROMPT, QUESTION_REASK_PROMPT, QUESTION_TEXT_MAX, QUESTION_DECISION_CHIPS
 from ..llm.client import load_prompt
 
 _WS = re.compile(r"\s+")
@@ -11,6 +11,14 @@ _WS = re.compile(r"\s+")
 
 def _norm(s: str | None) -> str:
     return _WS.sub(" ", (s or "").strip())
+
+
+_DECISIONS = frozenset(_WS.sub("", c) for c in QUESTION_DECISION_CHIPS)
+
+
+def is_decision(chip: str) -> bool:
+    """상황 칩이 '내가 내린 결정'인지 (PRD 6.6). 해볼 것의 재료가 된다."""
+    return _WS.sub("", chip or "") in _DECISIONS
 
 
 def record_text(e: ExperienceInput) -> str:
@@ -35,10 +43,19 @@ def record_text(e: ExperienceInput) -> str:
             cond.append(f"{_norm(k)}={'/'.join(vals)}")
     if cond:
         lines.append("조건(내가 고를 수 있었던 것): " + ", ".join(cond))
-    if e.situation_chips:
-        lines.append("상황(고를 수 없었던 것): " + ", ".join(_norm(c) for c in e.situation_chips))
-    for k, v in e.situation_notes.items():
-        if _norm(v):
+    # 상황 칩은 둘로 나눈다: 내가 내린 결정 → 해볼 것, 그 밖(직접 입력 포함) → 상상해보기
+    decided = [c for c in e.situation_chips if is_decision(c)]
+    happened = [c for c in e.situation_chips if not is_decision(c)]
+    notes = {k: v for k, v in e.situation_notes.items() if _norm(v)}
+    if decided:
+        lines.append("내가 내린 결정(고를 수 있었던 것): " + ", ".join(_norm(c) for c in decided))
+        for k, v in notes.items():
+            if is_decision(k):
+                lines.append(f"  - {_norm(k)}: {_norm(v)}")
+    if happened:
+        lines.append("상황(고를 수 없었던 것): " + ", ".join(_norm(c) for c in happened))
+    for k, v in notes.items():
+        if not (decided and is_decision(k)):
             lines.append(f"  - {_norm(k)}: {_norm(v)}")
     if e.emotion_chips:
         lines.append("감정(참고만, 질문 재료 아님): " + ", ".join(_norm(c) for c in e.emotion_chips))
@@ -55,6 +72,10 @@ def record_text(e: ExperienceInput) -> str:
             if lg.one_liner:
                 bits.append(_norm(lg.one_liner))
             lines.append("  - " + " · ".join(bits))
+    if e.answers:
+        lines.append("더 적어본 것:")
+        for a in e.answers:
+            lines.append(f"  - [{WRITE_MORE_SLOT_NAMES.get(a.slot, a.slot)}] {_norm(a.question)} → {_norm(a.answer)}")
     return "\n".join(lines)
 
 
@@ -69,16 +90,18 @@ def record_fragments(e: ExperienceInput) -> list[str]:
     out += e.situation_chips + list(e.situation_notes.values()) + [e.one_liner] + e.ai_tags
     for lg in e.logs:
         out += lg.situation_chips + [lg.one_liner]
+    out += [a.answer for a in e.answers]
     return [_norm(x) for x in out if _norm(x)]
 
 
 def input_hash(e: ExperienceInput) -> str:
-    """같은 입력이면 같은 해시 → LLM 안 부르고 재사용 (CLAUDE.md 4장 '출력')."""
+    """기록 문단의 해시. question_batch 에 기록으로 남긴다.
+       11/14 부터는 같은 해시여도 저장된 질문을 재사용하지 않는다 (재생성은 이전 질문과 안 겹쳐야 한다)."""
     return hashlib.sha256(record_text(e).encode("utf-8")).hexdigest()
 
 
 def prompt_version() -> str:
-    """지금 쓰는 프롬프트 버전. 저장된 질문을 재사용해도 되는지 볼 때 쓴다."""
+    """지금 쓰는 프롬프트 버전."""
     return load_prompt(QUESTION_PROMPT)[0]
 
 
@@ -89,18 +112,42 @@ def others_text(others: list[OtherExperience]) -> str:
                      f"{', '.join(_norm(c) for c in o.did_chips)}" for o in others)
 
 
-def build_messages(e: ExperienceInput, others: list[OtherExperience]) -> tuple[str, str, str]:
-    """(prompt_version, system, user)."""
+def has_raw_text(e: ExperienceInput) -> bool:
+    """원문이 있는지 (기능명세서 14.1). 원문 = 한 줄, 보강글, 회차 기록의 한 줄, 더 적어본 것. 칩은 원문이 아니다."""
+    texts = [e.one_liner, *e.did_notes.values(), *e.situation_notes.values(),
+             *(lg.one_liner for lg in e.logs), *(a.answer for a in e.answers)]
+    return any(_norm(t) for t in texts)
+
+
+def write_more_text(e: ExperienceInput) -> str:
+    """더 적어보기 판단에 쓰는 사실. 원문이 아예 없는지는 코드가 알 수 있어 모델에 맡기지 않는다."""
+    if has_raw_text(e):
+        first = "- 원문: 있음. 원문을 읽고 세 칸 가운데 적혀 있지 않은 칸만 묻는다"
+    else:
+        first = "- 원문: 없음 (칩만 있음). 세 칸 모두 빈 칸"
+    answered = [f"{WRITE_MORE_SLOT_NAMES[s]}({s})" for s in WRITE_MORE_SLOT_NAMES if any(a.slot == s for a in e.answers)]
+    return first + "\n- 이미 답한 칸: " + (", ".join(answered) if answered else "(없음)")
+
+
+def build_messages(e: ExperienceInput, others: list[OtherExperience],
+                   previous: list[str] | None = None) -> tuple[str, str, str]:
+    """(prompt_version, system, user). previous 는 사용자가 다시 만들기를 눌렀을 때 이전에 보여준 질문 본문."""
     version, system = load_prompt(QUESTION_PROMPT)
     system = system.replace("{text_max}", str(QUESTION_TEXT_MAX))
-    user = f"## 경험 기록\n{record_text(e)}\n\n## 이 사람의 다른 기록 (이미 해본 것 판정용)\n{others_text(others)}"
+    user = (f"## 경험 기록\n{record_text(e)}\n\n## 더 적어보기 판단\n{write_more_text(e)}"
+            f"\n\n## 이 사람의 다른 기록 (이미 해본 것 판정용)\n{others_text(others)}")
+    if previous:
+        user += "\n\n## 이전에 보여준 질문 (다시 내지 않는다)\n" + "\n".join(f"- {_norm(t)}" for t in previous)
     return version, system, user
 
 
-def reask_text(kept: list[str], dropped: list[tuple[str, str]], need: int) -> str:
-    """걸러낸 뒤 질문이 모자랄 때 사용자 메시지 뒤에 붙이는 글. 통과한 질문·버린 질문과 이유를 알려주고 need 개만 더 받는다."""
+def reask_text(kept: list[str], dropped: list[tuple[str, str]], need: dict[str, int]) -> str:
+    """걸러낸 뒤 질문이 모자랄 때 사용자 메시지 뒤에 붙이는 글. 통과한 질문·버린 질문과 이유를 알려주고 모자란 종류만 더 받는다.
+       need 는 {"try_next": 1, "imagine": 2} 꼴."""
     _, body = load_prompt(QUESTION_REASK_PROMPT)
     kept_lines = "\n".join(f"- {t}" for t in kept) or "(없음)"
     dropped_lines = "\n".join(f"- {t} → {why}" for t, why in dropped) or "(없음)"
-    return (body.replace("{have}", str(len(kept))).replace("{need}", str(need))
+    names = {"try_next": "try_next(해볼 것)", "imagine": "imagine(상상해보기)"}
+    need_text = ", ".join(f"{names[t]} {n}개" for t, n in need.items() if n)
+    return (body.replace("{have}", str(len(kept))).replace("{need}", need_text)
                 .replace("{kept}", kept_lines).replace("{dropped}", dropped_lines))

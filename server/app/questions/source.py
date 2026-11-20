@@ -10,7 +10,7 @@ from .filters import similarity
 from ..constants import QUESTION_SOURCE_SNAP_SIMILARITY
 
 _WS = re.compile(r"\s+")
-_NAMES = r"(?:활동|역할|기간|장소|주로 한 일|조건(?:\([^)]*\))?|상황(?:\([^)]*\))?|감정(?:\([^)]*\))?|한 줄|AI 태그|회차 기록)"
+_NAMES = r"(?:활동|역할|기간|장소|주로 한 일|조건(?:\([^)]*\))?|내가 내린 결정(?:\([^)]*\))?|상황(?:\([^)]*\))?|감정(?:\([^)]*\))?|한 줄|AI 태그|회차 기록|더 적어본 것)"
 _LABEL = re.compile(rf"^{_NAMES}\s*[:：]\s*")                  # record_text 가 붙이는 꼴 그대로
 _LOOSE_LABEL = re.compile(rf"^{_NAMES}(?:\s*칩)?\s*[:：\-–·]?\s*")  # 모델이 바꿔 적은 꼴 ("역할 칩 …", "주로 한 일 - …")
 _SPLIT = re.compile(r"\s*[,;]\s+|\s+/\s+")       # 출처 둘을 이어 쓴 경우. "대면/비대면"처럼 붙여 쓴 / 는 안 자른다

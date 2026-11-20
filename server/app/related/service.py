@@ -20,7 +20,7 @@ from . import rerank as rr
 log = logging.getLogger("related")
 
 _FILTER_RE = re.compile(r"^(all|same_role|different_role|genre:\S.{0,19})$")
-_Q_COLS = "id, user_id, experience_id, text, source_activity_name"
+_Q_COLS = "id, user_id, experience_id, text, source_activity_name, type"
 
 
 def valid_filter(f: str) -> bool:
@@ -141,6 +141,8 @@ async def get_related(conn: asyncpg.Connection, user_id: uuid.UUID, question_id:
     q = await conn.fetchrow(f"select {_Q_COLS} from question where id = $1", question_id)
     if q is None or q["user_id"] != user_id:
         raise AppError("NOT_FOUND", "질문 없음")
+    if q["type"] == "write_more":   # 더 적어보기는 관련 경험을 붙이지 않는다 (기능명세서 14.1)
+        raise AppError("VALIDATION_FAILED", "더 적어보기 질문에는 관련 경험이 없음", {"field": "question_id"})
 
     cached = await conn.fetchval("select items from related_cache where question_id = $1 and filter = $2", question_id, filter_)
     if cached is not None:
@@ -164,7 +166,7 @@ async def on_new_card(conn: asyncpg.Connection, experience_id: uuid.UUID, owner_
        알림은 여기서 보내지 않는다 — 하루 한 번 오전 9시에 묶어서 (CLAUDE.local.md 9장)."""
     qs = await conn.fetch(
         f"select {', '.join('q.' + c for c in _Q_COLS.split(', '))} from question q "
-        "where q.notify_on_related and q.user_id <> $1 "
+        "where q.notify_on_related and q.type <> 'write_more' and q.user_id <> $1 "
         "  and not exists (select 1 from related_cache c where c.question_id = q.id and c.filter = 'all' "
         "                  and jsonb_array_length(c.items) > 0) "
         "  and not exists (select 1 from block b where (b.user_id = q.user_id and b.blocked_id = $1) "
