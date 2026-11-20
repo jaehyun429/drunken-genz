@@ -20,6 +20,13 @@ CSV = ROOT / "experiences.csv"
 TAG_USER = uuid.UUID("00000000-0000-0000-0000-00000000e0a1")   # 평가용 카드 주인 (지울 때 식별)
 ME = uuid.UUID("00000000-0000-0000-0000-00000000e0a2")         # 검색하는 사람 (내 카드는 빠지니 다른 id)
 
+# experience 컬럼 제약(db/000_soyun_record.sql)을 지키려고 컬럼에만 넣는 값. csv 에는 분야(9개 중 하나)와 한 일 칩이 없다.
+# 임베딩에 넣는 글과 공개본(published_snapshot)은 예전과 같다 (유형을 분야 자리에, 한 일 300자). 관련 경험은 공개 뷰의 공개본만 읽는다.
+# 그래서 유사도 수치는 제약이 생기기 전과 그대로 견줄 수 있다
+EVAL_GENRE = "기타"
+EVAL_DID_CHIP = "평가용"          # 한 일 칩은 1~3개가 있어야 저장된다
+EVAL_NOTE_MAX = 80                # 보강글 컬럼 상한
+
 DEMO_QUESTIONS = [
     "팀장 말고 팀원으로 들어가서 같은 공모전 기획에 참여해보면 어떨까?",
     "취객을 응대할 때 말을 거는 방식이나 거리를 다르게 해본다면 어떤 차이가 날까?",
@@ -60,9 +67,10 @@ async def load():
             eid = await conn.fetchval(
                 "insert into experience (user_id, activity_name, genre, role, period_start, did_chips, did_notes, "
                 " situation_chips, emotion_chips, one_liner, visibility, published_at, published_snapshot, embedding) "
-                "values ($1, $2, $3, $4, '2025-01', '{}', $5::jsonb, $6, $7, $8, 'anonymous', now(), $9::jsonb, $10::vector) "
+                "values ($1, $2, $3, $4, '2025-01', $5, $6::jsonb, $7, $8, $9, 'anonymous', now(), $10::jsonb, $11::vector) "
                 "returning id",
-                TAG_USER, c["activity_name"][:40], c["genre"], c["role"][:20], json.dumps(c["did_notes"]),
+                TAG_USER, c["activity_name"][:40], EVAL_GENRE, c["role"][:20], [EVAL_DID_CHIP],
+                json.dumps({k: v[:EVAL_NOTE_MAX] for k, v in c["did_notes"].items()}, ensure_ascii=False),
                 c["situation_chips"], c["emotion_chips"], c["one_liner"], json.dumps(c, ensure_ascii=False), to_pg(v))
             # 평가용 카드는 질문 생성 대상이 아니다 — 질문 sweep 이 LLM 을 481번 부르지 않게 '끝난' batch 를 하나 깔아둔다
             await conn.execute(

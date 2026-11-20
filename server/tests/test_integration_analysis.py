@@ -60,7 +60,7 @@ def add_exp(uid, name, minutes_ago, one_liner="한 줄", status="done"):
     """created_at 을 벌려 넣어 번호(e1, e2 …)가 넣은 순서대로 붙게 한다."""
     return db(lambda c: c.fetchval(
         "insert into experience (user_id, status, activity_name, genre, role, period_start, did_chips, conditions, "
-        " emotion_chips, one_liner, created_at) values ($1, $2, $3, '알바', '직원', '2026-01', '{고객 응대}', "
+        " emotion_chips, one_liner, created_at) values ($1, $2, $3, '서비스·응대', '직원', '2026-01', '{고객 응대}', "
         " '{\"방식\": \"오프라인\"}', '{지침}', $4, now() - make_interval(mins => $5)) returning id",
         uid, status, name, one_liner, minutes_ago))
 
@@ -68,8 +68,8 @@ def add_exp(uid, name, minutes_ago, one_liner="한 줄", status="done"):
 def add_log(uid, eid, date, one_liner):
     lid = uuid.uuid4()
     db(lambda c: c.execute(
-        "insert into experience_log (id, experience_id, user_id, log_date, emotion_chips, one_liner) "
-        "values ($1, $2, $3, $4, '{지침}', $5)", lid, eid, uid, datetime.date.fromisoformat(date), one_liner))
+        "insert into experience_log (id, experience_id, user_id, log_date, situation_chips, emotion_chips, one_liner) "
+        "values ($1, $2, $3, $4, '{손님이 몰렸다}', '{지침}', $5)", lid, eid, uid, datetime.date.fromisoformat(date), one_liner))
     return lid
 
 

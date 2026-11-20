@@ -175,7 +175,7 @@ def test_delete_webhook_clears_related_cache(env):
         await conn.execute("insert into auth.users (id) values ($1) on conflict do nothing", asker)
         qeid = await conn.fetchval(
             "insert into experience (user_id, activity_name, genre, role, period_start, did_chips) "
-            "values ($1, '축제 부스', '동아리', '기획', '2026-01', '{기획}') returning id", asker)
+            "values ($1, '축제 부스', '행사 운영', '기획', '2026-01', '{기획}') returning id", asker)
         qid = await conn.fetchval(
             "insert into question (experience_id, user_id, type, axis, text, source, source_activity_name) "
             "values ($1, $2, 'try_next', 'role', '야간에 일해보면?', '한 줄', '축제 부스') returning id", qeid, asker)
