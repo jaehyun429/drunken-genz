@@ -74,7 +74,7 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 - 저장된 결과: 처음 한 번은 바로 계산한다. 그 뒤로는 저장된 것을 주고, 기록이 바뀌었으면 `has_new_records: true` 만 알린다. `force: true` 이고 기록이 바뀌었을 때만 다시 계산한다 (기록이 그대로면 `force` 여도 LLM 을 안 부른다)
 - 다시 계산할 때: "맞아요"·"수정할게요"를 받은 패턴은 남기고, 피드백이 없거나 "아직 모르겠어요"인 패턴은 지우고 새로 받는다. "아니에요"는 숨긴 채 남겨 두고 닮은 문장을 막는 데 쓴다. 사용자가 고친 문장(`edited_text`)은 모델에 보내지 않는다
 - 걸러내기(`app/analysis/filters.py`): 길이 80자, 끝이 "요.", 평가·사람 규정·조언·앞날 단정·남과 비교·연락처·"-시-" 높임, 근거 부족, 이미 있는 문장이나 숨긴 문장과 닮음. 닮음은 틀 낱말("기록이 두 개 있어요")을 뺀 문자 2-gram 이라 낱말이 거의 같은 것만 잡는다
-- `POST /v1/analysis/feedback` `{pattern_id, feedback, edited_text}` → `{pattern}`. `edit` 는 고친 문장(1~100자)이 있어야 하고, `no` 는 숨긴다. 남의 패턴은 404
+- `POST /v1/analysis/feedback` `{pattern_id, feedback, edited_text}` → `{pattern}`. `edit` 는 고친 문장(1~60자)이 있어야 하고, `no` 는 숨긴다. 남의 패턴은 404
 - LLM 이 실패하면 503 `AI_UNAVAILABLE` (`details.reason` = `connection` | `model`) 이고 아무것도 저장하지 않는다
 - 읽는 테이블은 본인의 `experience`, `experience_log`, `question`(담은 것), `analysis_*` 뿐. `qa`·`reaction` 은 안 읽는다 (POL-07, `tests/test_analysis_unit.py` 가 SQL 을 검사)
 - DB 없이 돌려보기: `python -m scripts.demo_analysis [f01 ...] [--feedback]` (가짜 경험 6개를 한 사람의 기록으로 가정. `--feedback` 은 첫 패턴에 "아니에요", 둘째에 "맞아요"를 누른 것처럼 꾸며 다시 분석)

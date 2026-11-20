@@ -49,7 +49,7 @@ PATTERN_MIN_EVIDENCE = 2         # 패턴 하나의 근거 기록 수 하한. �
 ANALYSIS_PROMPT = "analysis_v1"  # app/llm/prompts/<이름>.md
 ANALYSIS_PATTERN_MAX = 5         # 화면에 보이는 패턴 수 상한 (남겨둔 것 + 새로 만든 것). TODO(기획): 화면에 몇 개까지 보이는지
 ANALYSIS_TEXT_MAX = 80           # 패턴 한 문장 길이 상한. 넘으면 버림
-ANALYSIS_EDIT_MAX = 100          # "수정할게요"로 고친 문장 길이 상한. TODO(기획): 명세에 길이 없음. 한 줄(100자)과 같게 둠
+ANALYSIS_EDIT_MAX = 60           # "수정할게요"로 고친 문장 길이 상한 (기능명세서 ANA-01b-①: 최대 60자)
 # 패턴 끝맺음. 프롬프트의 말투와 짝이라 같이 바꾼다. 질문(v4)과 같이 존댓말, 평서문 "~요."
 # TODO(기획): 말투는 PRD 7장 톤 규칙이 정한다
 ANALYSIS_ENDING = r"요\.$"

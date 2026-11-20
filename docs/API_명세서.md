@@ -538,7 +538,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 { "pattern": { "id": "uuid", "text": "...", "evidence": [ ... ], "feedback": "edit", "edited_text": "...", "hidden": false } }
 ```
 `[재현 11/15 구현하면서 채움]`
-- `edit` 는 `edited_text` 1~100자 필수, 없으면 400 `VALIDATION_FAILED`. 다른 값일 땐 `edited_text` 를 무시하고 전에 고친 문장은 남김
+- `edit` 는 `edited_text` 1~60자 필수 (기능명세서 ANA-01b-①), 없으면 400 `VALIDATION_FAILED`. 다른 값일 땐 `edited_text` 를 무시하고 전에 고친 문장은 남김
 - `no` → `hidden: true`, 목록에서 바로 빠지고 다시 분석해도 닮은 문장을 안 만듦. 다른 값으로 다시 보내면 풀림
 - `yes`·`edit` 패턴은 다시 분석해도 남고, 피드백 없음·`later` 는 새 결과로 바뀜
 - 내 패턴이 아니거나 없으면 404 `NOT_FOUND`

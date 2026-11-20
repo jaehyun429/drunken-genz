@@ -161,7 +161,7 @@ async def set_feedback(conn: asyncpg.Connection, user_id: uuid.UUID, pattern_id:
     if feedback == "edit":
         edited = " ".join((edited_text or "").split())
         if not edited or len(edited) > ANALYSIS_EDIT_MAX:
-            raise AppError("VALIDATION_FAILED", "고친 문장은 1자 이상", {"field": "edited_text", "max": ANALYSIS_EDIT_MAX})
+            raise AppError("VALIDATION_FAILED", f"고친 문장은 1~{ANALYSIS_EDIT_MAX}자", {"field": "edited_text", "max": ANALYSIS_EDIT_MAX})
     # 남의 패턴도 없는 것과 똑같이 404
     row = await conn.fetchrow(
         "update analysis_pattern set feedback = $3::text, hidden = ($3::text = 'no'), "
