@@ -116,7 +116,24 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 - 본인: select 전부. insert·update는 **굵은 컬럼 제외** (컬럼 권한 REVOKE 또는 트리거로 막음)
 - 남: **원본 테이블 접근 불가.** 공개 카드는 `experience_public` 뷰 또는 FastAPI로만
 
-**뷰 experience_public** — `visibility != 'private'`인 행의 `published_snapshot`·`masked`만 노출. 뷰는 `security_invoker`로 만들어 RLS가 적용되게 하고, 차단 관계 필터는 FastAPI 쿼리에서 건다 (요청한 사용자 id 기준 — 서버는 `service_role`로 읽어서 DB가 누가 보는지 모름). **앱은 이 뷰도 직접 안 읽음** — FastAPI가 읽어서 PublicCard로 내려줌. `[수정 #2]`
+**published_snapshot 모양 (11/20)** — 공개 확정 순간의 복사본. 키 이름은 experience 컬럼과 같음. 원본을 나중에 고쳐도 안 바뀜
+```json
+{
+  "status": "done", "activity_name": "...", "official_period": 13 | null, "genre": "...", "type": "..." | null, "role": "...",
+  "period_start": "2026-03", "period_end": "2026-06" | null, "place": "..." | null,
+  "did_chips": [], "did_notes": {}, "custom_chips": [], "conditions": {},
+  "situation_chips": [], "situation_notes": {}, "emotion_chips": [], "one_liner": "..." | null, "ai_tags": [],
+  "official_activity": { "name": "...", "verified": true } | null,
+  "snapshot_version": 1
+}
+```
+- 가림을 받아들인 칸(`activity_name`·`role`·`place`·`one_liner`)은 **가린 값으로 들어감**. 원래 글자는 어디에도 안 남음
+- 기수(`official_period`)는 기본으로 들어가고, 미리보기에서 늘 "가릴까요?"를 물음. 가리면 `null` (11/20)
+- 안 넣는 것: id·user_id, 사진(공개는 나중), `pinned`, 공개 설정, 시각들
+- `masked` = 가린 칸 이름 목록 `["place", "role"]`
+- 만드는 곳: `server/app/publish/snapshot.py` `make_snapshot()`. 모양을 바꾸면 `snapshot_version`을 올림
+
+**뷰 experience_public** — `visibility != 'private'`이고 `published_snapshot`이 있는 행만. 칸: `experience_id, user_id, published_snapshot, masked, published_at, accept_questions, visibility` (원본 칸은 없음. 11/20 `visibility` 추가 — 프로필 화면은 `profile`만). 뷰는 `security_invoker`로 만들어 RLS가 적용되게 하고, 차단 관계 필터는 FastAPI 쿼리에서 건다 (요청한 사용자 id 기준 — 서버는 `service_role`로 읽어서 DB가 누가 보는지 모름). **앱은 이 뷰도 직접 안 읽음** — FastAPI가 읽어서 PublicCard로 내려줌. `[수정 #2]`
 
 **앱이 하는 호출**
 ```js
@@ -208,14 +225,23 @@ RLS: 본인 전부. 앱이 시작·포그라운드 복귀 시 upsert, 로그아�
 
 | 컬럼 | 타입 |
 |---|---|
-| user_id | uuid PK |
-| nickname | text, 필수 |
-| school, major_field, grade | text, nullable |
-| show_school, show_major, show_grade | bool |
-| show_qa | bool, 기본 false |
-| school_verified | bool — 앱이 못 바꿈 |
+| user_id | uuid PK. 기본 `auth.uid()` |
+| nickname | text, 필수, 2~12자 (앞뒤 공백 빼고). 전화번호·이메일 모양이면 DB가 막음 (피그마 PRF-⑨) |
+| school | text, nullable, 40자. 남에게는 "서울 소재 대학"처럼 넓혀서 |
+| major_field | text, nullable, 40자. 전공 계열 ("인문계열") `TODO(기획): 값 목록` |
+| grade | text, nullable, 10자 `TODO(기획): 값 목록` |
+| bio | text, nullable, 100자. 공개용 한 문장 (PRF-⑩) `TODO(기획): 길이` |
+| show_school, show_major, show_grade, show_bio, show_qa | bool, **전부 기본 false** — 처음엔 다 비공개 (11/20) |
+| school_verified | bool, 기본 false — 앱이 못 바꿈 |
+| created_at, updated_at | timestamptz. `updated_at`은 트리거로 자동 |
 
-RLS: 본인 전부. **남의 프로필은 FastAPI로만** (열 단위 공개라 RLS로 안 됨).
+RLS: 본인 전부(읽기·만들기·고치기·지우기). 단 `school_verified`·`user_id`는 컬럼 권한으로 막음. **남의 프로필은 FastAPI로만** (열 단위 공개라 RLS로 안 됨).
+
+```js
+// 가입 직후 (user_id 는 기본값)
+supabase.from('profile').insert({ nickname, school, show_school })
+supabase.from('profile').update({ grade: '3학년', show_grade: true }).eq('user_id', me)
+```
 
 ### 앱이 직접 접근하지 않는 테이블 — FastAPI만 읽고 씀
 
@@ -542,6 +568,7 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 
 ## 변경 이력
 
+- 11/20 (소윤) — `profile` 글자 수 확정, `bio`·`show_bio` 추가, 공개 기본값 전부 false, 닉네임에 연락처 금지(1.7). `published_snapshot` 모양·`masked` 형식 확정(1.1). `experience_public` 실제 뷰로 바꾸고 `visibility` 칸 추가
 - 11/20 (소윤) — 기수: 공식 활동 목록에서 빼고(`period`·`series_key`·검색 `periods` 없앰) 기록에 `official_period`(1~99, 선택)로. 공개 카드에도 들어가고 미리보기에서 가리기 제안
 - 11/18 (소윤) — 공식 활동: 검색은 `verified`만 + 초성, 기수 묶음(`periods`)·분야·유형 응답에 추가. `POST /activities` 없앰 (사용자 등록 없음). `official_activity`에 `genre`·`type`·`series_key`
 - v0.3 (11/14) — 소윤 검토 반영. 탐색·카드·반응 담당 재현으로 통일. 차단 필터를 뷰 → FastAPI 쿼리로. 14일 미답변 Q&A 삭제 → `qa.status = no_answer`로 접기 (POL-12). `/publish/confirm`에 `accept_questions` 추가, `/publish/settings` 신설. `updated_at` 트리거 자동 갱신 명시. `experience_log` 저장 시 본인 경험 확인. `/push/devices` 두 개 삭제 (앱 직접). helpful_reason 유니크 (experience_id, user_id) 확정 (POL-14). 답변 500자·24시간 규칙 `TODO(기획)`
