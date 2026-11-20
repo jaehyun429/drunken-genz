@@ -1,8 +1,8 @@
-# API 명세서 v0.3
+# API 명세서 v0.3.1
 
-v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영
+v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영 → v0.3.1 (11/14) · 재현 섹션(질문·알림·백그라운드) 구현 기준으로 갱신
 
-> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목. 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
+> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목, `[v0.3.1]`은 재현 PR 에서 바뀐 곳. 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
 
 구조가 두 갈래라 명세도 두 부분입니다.
 
@@ -147,38 +147,72 @@ supabase.from('experience').select('*').eq('user_id', me)
 
 RLS: 본인만. 저장할 때 `experience_id`도 본인 경험이어야 함. 공개된 경험의 회차는 흐름 요약만 `published_snapshot`에. `[수정 #6]`
 
-### 1.3 question — AI 질문 (재현)
+### 1.3 question — AI 질문 (재현) `[v0.3.1]`
 
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
 | id | uuid | |
-| experience_id | uuid | |
+| experience_id | uuid | **nullable, 경험 삭제 시 null** — 담은 질문은 경험이 지워져도 남김. 안 담은 질문은 트리거로 같이 삭제 |
 | user_id | uuid | |
-| **type** | text | `try_next` / `imagine`. 앱이 못 바꿈 |
+| source_activity_name | text | 출처 경험의 활동명 복사. 경험이 지워진 뒤 "삭제된 기록: {활동명}" 표시용 |
+| **type** | text | `try_next`(내가 고를 수 있는 것을 바꾼 질문) / `imagine`(고를 수 없었던 것을 바꾼 질문). 앱이 못 바꿈 |
+| **axis** | text | 바꾼 변수 하나. try_next: `role` `scale` `method` `autonomy` `did` `field` / imagine: `situation` `external`. 앱이 못 바꿈 |
 | **text** | text | 질문 본문. 앱이 못 바꿈 |
-| **source** | text | "어느 기록·어느 차이에서". 앱이 못 바꿈 |
-| **is_done** | bool | 내 다른 기록과 겹침. 앱이 못 바꿈 |
+| **source** | text | "어느 칩·어느 문장에서". 앱이 못 바꿈 |
+| **is_done** | bool | 내 다른 기록과 겹침 (서버 판정). 앱이 못 바꿈 |
+| **done_experience_id** | uuid | 겹친다고 판정한 내 기록. nullable. 앱이 못 바꿈 |
+| done_dismissed | bool | 자동 판정이 틀렸을 때 사용자가 "아니에요" — 앱이 바꿈. 화면 표시는 `is_done and not done_dismissed` 또는 `linked_experience_id is not null` |
 | saved | bool | 담기 — 앱이 바꿈 |
 | memo | text | imagine 메모 — 앱이 바꿈 |
-| linked_experience_id | uuid | 해봤어요 연결 — 앱이 바꿈 |
+| linked_experience_id | uuid | 해봤어요 직접 연결 — 앱이 바꿈. 내 경험만 가리킬 수 있음 (트리거) |
+| notify_on_related | bool | 관련 경험 0개일 때 "새 경험이 생기면 알려드릴까요?" 좋아요 — 앱이 바꿈 (지은 11/14) |
+| related_new | bool | 새 관련 경험이 붙었음 표시. 서버가 켜고 앱이 끔 |
 | generation | int | 재생성 회차 |
 | created_at | timestamptz | |
 
-RLS: 본인만. `saved`·`memo`·`linked_experience_id`만 앱이 update. 담기 20개 제한은 앱이 먼저 카운트 읽고 막고, DB 트리거는 2차 방어.
+RLS: 본인만. 앱이 update 할 수 있는 컬럼은 `saved` `memo` `linked_experience_id` `done_dismissed` `notify_on_related` `related_new` 여섯 개 — 컬럼 권한(GRANT)으로 막음. insert·delete 는 서버만. 담기 20개 제한은 앱이 먼저 카운트 읽고 막고, DB 트리거는 2차 방어 (`QUESTION_SAVE_LIMIT`).
 
-### 1.4 notification — 알림 (재현)
+**질문 개수**: 경험 하나당 **2~4개** (11/10 회의). 내용이 적으면 2개, 억지로 채우지 않음. ~~try_next 2 + imagine 2 고정~~
+
+### 1.3a question_batch — 질문 생성 기록 (재현) `[v0.3.1 신규]`
+
+생성 한 번 = 한 행. 앱은 **이 행의 `status`를 보고 "준비 중"을 띄움** (폴링 또는 Realtime).
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| id | uuid | |
+| experience_id, user_id | uuid | |
+| generation | int | `question.generation`과 같음 |
+| trigger | text | `save`(저장 웹훅·sweep) / `user`(재생성 버튼). 하루 1회 제한은 `user`만 셈 |
+| status | text | `pending` / `done` / `failed` |
+| failure_reason | text | `connection`(요청 안 감·시간 초과·모델 서버 다운 → 앱이 "다시 시도" 버튼) / `model`(응답 깨짐 → 다시 눌러도 안 되니 안내만). nullable |
+| attempts | int | 서버 자동 재시도 횟수 (최대 3). 하루 횟수에 안 셈 |
+| input_hash, model, prompt_version | text | 같은 입력 해시면 LLM 안 부르고 이전 결과 복사 |
+| created_at, finished_at | timestamptz | |
+
+RLS: 본인 select 만. 쓰기는 서버만.
+
+### 1.3b related_cache · analysis_run · analysis_pattern (재현) `[v0.3.1 신규]`
+
+- `related_cache(question_id, filter) → items jsonb, computed_at` — 관련 경험 결과 캐시. **앱 접근 없음** (서버가 PublicCard 로 바꿔 내려줌). 질문이 지워지면 cascade
+- `analysis_run(user_id PK) → record_count, criteria, input_hash, last_updated` — 사용자당 1행. 앱 읽기만
+- `analysis_pattern(id, user_id, text, evidence jsonb, feedback, edited_text, hidden)` — 패턴 + 피드백. `feedback='no'` 면 `hidden`, 다시 안 만듦. 앱 읽기만. 피드백은 `/analysis/feedback` 으로
+
+### 1.4 notification — 알림 (재현) `[v0.3.1]`
 
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
 | id | uuid | |
 | user_id | uuid | |
-| type | text | 10종 (new_question / answer / helpful / saved / related_found / reminder / draft / verification / coffeechat_request / coffeechat_result) |
-| payload | jsonb | 이동할 화면 정보 |
-| grouped_key | text | 하루 묶음용 |
+| type | text | 10종 (new_question / answer / helpful / saved / related_found / reminder / draft / verification / coffeechat_request / coffeechat_result). 커피챗 2종은 종류만 두고 안 만듦 |
+| payload | jsonb | 이동할 화면 정보. 예: `{ "experience_id", "qa_id" }`, related_found 는 `{ "question_ids": [...] }` (하나면 그 질문으로 바로) |
+| grouped_key | text | 묶음 키 `종류:경험id:KST날짜`. `(user_id, grouped_key)` 유니크 |
+| count | int | 묶음 개수. 같은 키로 또 생기면 **행을 새로 만들지 않고 +1** ("질문 1→3개"). 푸시는 첫 건만 (지은 11/14) |
 | read | bool | **앱이 바꿀 수 있는 유일한 컬럼** |
+| pushed_at | timestamptz | 실제 푸시 시각. 방해 금지(22~08 KST)에 생긴 건 null 로 쌓였다가 **08:00 에 "밤사이 알림 N개" 하나로** 푸시 |
 | created_at | timestamptz | |
 
-RLS: 본인 select, `read`만 update. 생성은 서버(트리거 + FastAPI). 30일 지난 건 cron 삭제. 앱은 모르는 `type`이 오면 일반 알림으로 표시.
+RLS: 본인 select, `read`만 update (컬럼 권한). 생성은 서버(트리거 + FastAPI). 30일 지난 건 cron 삭제. 앱은 모르는 `type`이 오면 일반 알림으로 표시. 알림이 가리키는 글이 없어져도 알림은 남김 → 앱이 "지금은 볼 수 없는 글이에요". 차단한 사람의 활동으로는 알림을 만들지 않음. 익명이라 문구에 닉네임 안 넣음.
 
 ### 1.5 notification_setting (재현)
 
@@ -406,7 +440,9 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```
 - 임베딩 유사도 후보 → **LLM 재정렬 유지** + `reason` 생성. `reason`은 nullable
 - 임계값 밑이면 `items: []`
-- **처음 열 때 계산하고 캐시.** 무효화: 해당 질문 재생성 시 / 캐시된 카드가 비공개·차단되면 결과에서 즉시 제외(읽을 때 필터)
+- **처음 열 때 계산하고 캐시** (`related_cache`). 읽을 때 비공개·차단·본인 카드는 매번 다시 거름
+- **다시 계산** `[v0.3.1]` (지은 11/14): ① 결과 0개였고 사용자가 `notify_on_related` 를 켠 질문 → 새 공개 카드가 생기면 재계산, 붙으면 `related_new` 켜고 하루 한 번 09:00 `related_found` 알림 ② 카드가 비공개·삭제되면 그 카드를 담고 있던 캐시 재계산 ③ 질문 재생성 시 캐시 삭제
+- 후보는 `match_public_cards(query_embedding, me)` (임베딩 코사인, 임계값 0.35 — 실제 데이터로 조정). 차단·본인 제외는 서버가 요청자 id 로
 - 페이지 없음 — 최대 10개로 끝 (v0.1의 `next_cursor` 삭제)
 
 #### POST /reactions
@@ -443,20 +479,30 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 { "target_type": "experience" | "qa" | "user", "target_id": "uuid", "reason": "...", "note": "...", "block": true }
 ```
 
-### 질문·분석 (재현)
+### 질문·분석 (재현) `[v0.3.1]`
 
-#### POST /questions — 생성
-**호출 주체 결정 필요**: 앱이 저장 직후 부르면 앱 꺼졌을 때 안 생김 / 서버가 저장 웹훅으로 부르면 앱이 "생성 중"을 알아야 함. 제안: **서버 웹훅**으로 생성하고, `question` 테이블에 행이 없으면 앱이 "준비 중" 표시 + 폴링 또는 Realtime 구독.
+#### 질문 생성 — 앱이 부르지 않음. 서버 웹훅 (결정됨 11/10)
+~~**호출 주체 결정 필요**~~ → **서버**. 흐름:
+1. `experience` INSERT → Supabase DB 웹훅 → `POST /v1/internal/experience-saved` (헤더 `X-Webhook-Secret`, 값은 Vault). 재전송 없는 웹훅이라 서버가 5분마다 `question_batch` 없는 경험을 찾아 보충(sweep)
+2. 서버가 `question_batch` 를 `pending` 으로 만들고 백그라운드 생성. **앱은 `question_batch.status` 를 읽어 "준비 중" 표시**
+3. 성공 → `done`, `question` 행 2~4개. 실패 → `failed` + `failure_reason` (`connection` 이면 앱이 "다시 시도" 버튼 → `/questions/retry`, `model` 이면 안내만)
+
+~~#### POST /questions — 생성~~ 삭제. 앱이 부르는 건 아래 둘.
+
+#### POST /questions/regenerate
 ```json
 { "experience_id": "uuid" }
 ```
 ```json
-{ "questions": [ { "id": "uuid", "type": "try_next", "text": "...", "source": "...", "is_done": false }, ... ] }
+{ "batch_id": "uuid", "generation": 2, "status": "pending" }   // 202. 결과는 question_batch · question 테이블에서
 ```
-try_next 2 + imagine 2. 입력 해시 캐시.
+하루 1회 (KST 자정 기준, `trigger='user'` 만 셈). 초과 → 429 `QUESTION_REGEN_LIMIT`. 남의 경험 → 404. 담은(`saved`) 질문은 남기고 나머지 삭제, 지워진 질문의 `related_cache` 도 삭제. 같은 입력 해시면 LLM 안 부르고 이전 결과 복사. `TODO(기획)`: 기록을 고치면 자동 재생성할지 (현재는 버튼만), "기록할 때마다 1회"로 바뀔 가능성
 
-#### POST /questions/regenerate
-하루 1회. 초과 → 429 `QUESTION_REGEN_LIMIT`. `saved = true` 유지.
+#### POST /questions/retry
+```json
+{ "experience_id": "uuid" }
+```
+마지막 batch 가 `failed` + `connection` 일 때만. 하루 횟수에 안 셈. 그 외 상태면 400 `VALIDATION_FAILED` (`details.status`, `details.failure_reason`).
 
 #### POST /analysis
 ```json
@@ -490,8 +536,7 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 
 ### 알림 (재현)
 
-#### GET /notifications?cursor=
-앱이 Supabase 직접 읽어도 되지만 묶음 표시를 서버에서 하려면 여기로. 결정은 재현.
+~~#### GET /notifications?cursor=~~ 삭제 `[v0.3.1]` — 결정됨: **앱이 `notification` 테이블을 Supabase 에서 직접 읽음** (cursor = created_at). 묶음은 `grouped_key`·`count` 컬럼으로 이미 한 행이라 서버 가공 불필요. 서버 엔드포인트는 내부용(`/internal/*`)만.
 
 ~~`POST /push/devices`, `DELETE /push/devices/{device_id}`~~ 삭제 — 푸시 토큰 등록·삭제는 FastAPI 엔드포인트 없음 — 앱이 `push_device` 테이블에 직접 (1.6). `[수정 #7]`
 
@@ -499,8 +544,11 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 
 ## 3. FastAPI 백그라운드
 
-- 경험 공개 확정 시 임베딩 생성 (confirm 안에서 동기 처리하거나 웹훅)
-- 새 공개 카드 → `saved = true`인 질문들과 매칭 → `related_found` 알림
+- 경험 공개 확정 시 임베딩 생성 — `experience` UPDATE 중 `published_at`·`visibility` 가 바뀔 때만 DB 웹훅 → `POST /v1/internal/experience-published`. 비공개로 내릴 때도 같은 주소 (서버가 `visibility` 보고 분기: 비공개면 그 카드를 담은 `related_cache` 재계산). 웹훅 재전송이 없어 서버 sweep 이 `visibility <> 'private' and embedding is null` 을 보충 `[v0.3.1]`
+- 공개된 경험 삭제 시 — `experience` DELETE 중 지워진 행이 공개(`visibility <> 'private'`)였을 때만 DB 웹훅 → 같은 주소 `POST /v1/internal/experience-published`, `type: "DELETE"`. Supabase 기본 모양 그대로라 `record` 는 `null`, 서버는 `old_record.id` 만 읽는다. 처리는 비공개 내림과 같음 (그 카드를 담은 `related_cache` 재계산). 웹훅이 빠져도 조회할 때 사라진 카드는 걸러지고 다시 계산됨 `[v0.3.1]`
+- 새 공개 카드 → ~~`saved = true`인 질문들~~ **`notify_on_related` 가 켜진 질문**과 매칭 → `related_new` 켬 → **매일 09:00 KST** 사용자당 `related_found` 알림 하나 (경험 수는 질문 여러 개에 맞아도 한 번만 셈, 내 경험이 내 질문에 맞는 건 제외) `[v0.3.1]`
+- 방해 금지(22~08)에 쌓인 알림 → 08:00 에 하나로 묶어 푸시 `[v0.3.1]`
+- 5분마다 sweep: `question_batch` 없는 경험 → 질문 생성 `[v0.3.1]`
 - 리마인드 푸시 cron (Asia/Seoul 기준, 방해 금지 제외)
 - 30일 지난 알림 삭제, 14일 미답변 Q&A를 `no_answer`로 변경 (삭제 안 함) `[수정 #3]`
 - Expo 전송 결과 `DeviceNotRegistered` → 토큰 삭제
@@ -523,8 +571,11 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 
 | 항목 | 누가 |
 |---|---|
-| `/questions` 호출 주체 (앱 vs 서버 웹훅) | 재현 |
-| `/notifications` 앱 직접 vs 서버 경유 | 재현 |
+| ~~`/questions` 호출 주체 (앱 vs 서버 웹훅)~~ → 서버 웹훅 + sweep | 재현 `[v0.3.1]` |
+| ~~`/notifications` 앱 직접 vs 서버 경유~~ → 앱 직접 | 재현 `[v0.3.1]` |
+| 기록을 고치면 질문 자동 재생성할지, 재생성 "하루 1회"가 "기록할 때마다 1회"로 바뀔지 | 지은 `[v0.3.1]` |
+| 알림 종류별 기본값, 진행 중 활동 만들 때 리마인드 자동 on (일 21:00?) | 지은 `[v0.3.1]` |
+| 분석 "아니에요"의 범위(비슷한 패턴도 막는지), "나중에"는 언제 다시 | 지은 `[v0.3.1]` |
 | 초성 검색 — pg_trgm으로 안 되면 | 소윤 |
 | 개수 제한을 DB 트리거로도 걸지 (앱 체크 + 서버 체크 외에) | 소윤 |
 | `follow_up` 답변 저장 위치 | 지은 |
@@ -538,6 +589,7 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 
 ## 변경 이력
 
+- v0.3.1 (11/14) — 재현 섹션 구현 기준 갱신. 1.3 `question` 컬럼 추가(`source_activity_name` `axis` `done_experience_id` `done_dismissed` `notify_on_related` `related_new`, `experience_id` nullable), 질문 2~4개. 1.3a `question_batch`·1.3b `related_cache`/`analysis_*` 신규. 1.4 `notification` 에 `count` `pushed_at`, 묶음 유니크. `/questions` 삭제 → 서버 웹훅 + `/questions/retry`. `GET /notifications` 삭제(앱 직접). `/related` 재계산 규칙. 3장 웹훅 주소·sweep·09:00 알림 (지은 11/14 답 반영)
 - v0.3 (11/14) — 소윤 검토 반영. 탐색·카드·반응 담당 재현으로 통일. 차단 필터를 뷰 → FastAPI 쿼리로. 14일 미답변 Q&A 삭제 → `qa.status = no_answer`로 접기 (POL-12). `/publish/confirm`에 `accept_questions` 추가, `/publish/settings` 신설. `updated_at` 트리거 자동 갱신 명시. `experience_log` 저장 시 본인 경험 확인. `/push/devices` 두 개 삭제 (앱 직접). helpful_reason 유니크 (experience_id, user_id) 확정 (POL-14). 답변 500자·24시간 규칙 `TODO(기획)`
 - v0.2 (11/09) — 앱·서버 경계 원칙 반영. 앱 직접 접근을 내 데이터로 제한, 앱이 못 바꾸는 컬럼 명시. `draft_step` 삭제, `published_at` 추가, `push_device` 테이블 신설, `helpful_count` 삭제. 탐색 목록 `/cards`·카드 상세 `/cards/{id}`·`/activities/*`·`/qa/*`·`/reactions`·`/reports`·`/profiles/{id}`·`/push/devices` 신설. `/publish` → preview/confirm/unpublish 분리. `/export` 삭제. 에러 코드 14개·형식·호환 규칙. PublicCard 통일
 - v0.1 (11/06) 초안
