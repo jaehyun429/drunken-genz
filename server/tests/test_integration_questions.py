@@ -302,6 +302,46 @@ def test_connection_failure_then_retry(env):
     assert r.status_code == 202
 
 
+def _post_saved(client, uid, eid):
+    return client.post("/v1/internal/experience-saved", headers={"X-Webhook-Secret": "s3cret"},
+                       json={"type": "INSERT", "table": "experience", "record": {"id": str(eid), "user_id": str(uid)}})
+
+
+def test_record_shape_the_model_cannot_read_fails_the_batch(env):
+    """DB 는 conditions 가 객체인지만 본다. 값이 숫자면 모델 입력으로 못 바꾼다. pending 으로 남지 않고 failed/model 이 된다."""
+    client, fake = env
+    uid, eid = asyncio.run(_seed())
+
+    async def spoil():
+        conn = await asyncpg.connect(DB)
+        await conn.execute("update experience set conditions = '{\"규모\": 3}' where id = $1", eid)
+        await conn.close()
+    asyncio.run(spoil())
+
+    assert _post_saved(client, uid, eid).status_code == 202
+    batch = asyncio.run(_wait_batch(eid))
+    assert batch["status"] == "failed" and batch["failure_reason"] == "model"
+    assert batch["error_detail"] == "입력 모양 오류: conditions"   # 어느 칸인지만. 값은 안 남긴다
+    assert fake.calls == 0
+
+
+def test_unexpected_error_while_storing_fails_the_batch(env, monkeypatch):
+    """저장 단계에서 난 예외도 밖으로 안 나가고 failed 로 남는다. 예외 글(사용자 글이 섞일 수 있다)은 안 남긴다."""
+    client, fake = env
+    uid, eid = asyncio.run(_seed())
+    from app.questions import service
+
+    async def boom(*a, **kw):
+        raise RuntimeError("조용한 사람이 됐다.")
+    monkeypatch.setattr(service, "_store", boom)
+
+    assert _post_saved(client, uid, eid).status_code == 202
+    batch = asyncio.run(_wait_batch(eid))
+    assert batch["status"] == "failed" and batch["failure_reason"] == "model"
+    assert batch["error_detail"] == "RuntimeError"
+    assert asyncio.run(_questions(eid)) == []
+
+
 def test_app_cannot_change_question_text(env):
     """컬럼 권한: authenticated 역할로 text 를 바꾸면 거부돼야 함 (CLAUDE.md 3장)."""
     uid, eid = asyncio.run(_seed())
