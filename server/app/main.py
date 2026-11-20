@@ -10,6 +10,7 @@ from .questions.router import router as questions_router
 from .embedding.router import router as embedding_router
 from .related.router import router as related_router
 from .questions import sweep
+from .activities import router as activities_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -30,6 +31,7 @@ app.add_exception_handler(Exception, unhandled_error_handler)
 app.include_router(questions_router, prefix="/v1")
 app.include_router(embedding_router, prefix="/v1")
 app.include_router(related_router, prefix="/v1")
+app.include_router(activities_router, prefix="/v1")   # 소윤
 
 
 @app.get("/v1/health")
