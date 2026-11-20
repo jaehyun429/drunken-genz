@@ -49,8 +49,9 @@ ACTIVITY_SEARCH_LIMIT = 5
 ACTIVITY_RECORD_COUNT_MIN = 5    # 기록 수가 이보다 적으면 null (명세 1.8)
 
 # 프로필 (소윤). db/000_soyun_record.sql profile 의 check 와 같아야 함
-PROFILE_NICKNAME_MIN = 2         # TODO(기획): 닉네임 길이
+PROFILE_NICKNAME_MIN = 2         # 피그마 PRF-⑨
 PROFILE_NICKNAME_MAX = 12
+PROFILE_BIO_MAX = 100            # 공개용 한 문장. TODO(기획): 길이 (기록 한 줄과 같게 둠)
 PROFILE_SCHOOL_MAX = 40
 PROFILE_MAJOR_MAX = 40
 PROFILE_GRADE_MAX = 10

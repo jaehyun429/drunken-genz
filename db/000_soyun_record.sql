@@ -243,22 +243,31 @@ create trigger experience_deleted_webhook after delete on experience
 
 
 -- ---------- 프로필 (11/20) ----------
+-- 연락처처럼 보이는 글자: 전화번호(숫자 9자리 이상, 사이 - . 공백 허용)·이메일. 닉네임에 못 쓰게 (PRF-⑨)
+-- 글에 섞인 연락처 "경고"는 서버 /pii-check 가 따로 한다 (막지는 않음). 여기는 닉네임만 막는다
+create or replace function contact_like(s text) returns boolean language sql immutable as $$
+  select coalesce(s ~ '\d([\s.-]?\d){8,}' or s ~* '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}', false)
+$$;
 -- 앱이 가입 때 자기 행을 직접 만들고 고친다. 남의 프로필은 FastAPI /profiles/{id} 로만 (칸마다 공개 여부가 달라 RLS 로 못 거름)
 -- 글자 수는 server/app/constants.py PROFILE_* 와 같아야 한다
 create table if not exists profile (
   user_id         uuid primary key default auth.uid() references auth.users(id) on delete cascade,
-  nickname        text not null check (char_length(btrim(nickname)) between 2 and 12),   -- TODO(기획): 닉네임 길이·중복 허용 여부
-  school          text check (char_length(school) <= 40),
-  major_field     text check (char_length(major_field) <= 40),
-  grade           text check (char_length(grade) <= 10),                                 -- TODO(기획): 학년 고르는 값 목록
-  -- 칸마다 남에게 보일지. 기본은 안 보임 (기록이 나만 보기로 시작하는 것과 같게). TODO(기획): 기본값 확인
+  -- 2~12자 (피그마 PRF-⑨). 실명은 기계로 못 거르고, 연락처 모양만 DB 가 막는다 (앱이 서버 없이 직접 저장하므로)
+  nickname        text not null check (char_length(btrim(nickname)) between 2 and 12),
+  school          text check (char_length(school) <= 40),        -- 남에게는 "서울 소재 대학"처럼 넓혀서 (서버가 바꿔 보냄)
+  major_field     text check (char_length(major_field) <= 40),   -- 전공 계열 ("인문계열"). TODO(기획): 고르는 값 목록
+  grade           text check (char_length(grade) <= 10),         -- TODO(기획): 학년 고르는 값 목록
+  bio             text check (char_length(bio) <= 100),          -- 공개용 한 문장 (PRF-⑩). TODO(기획): 길이. 기록 한 줄과 같게 100
+  -- 칸마다 남에게 보일지. 처음엔 전부 비공개 (11/20 소윤 확인. 피그마 PRF-⑩ [제안]의 학교·전공 공개 기본값은 안 따름)
   show_school     boolean not null default false,
   show_major      boolean not null default false,
   show_grade      boolean not null default false,
+  show_bio        boolean not null default false,
   show_qa         boolean not null default false,
   school_verified boolean not null default false,   -- 학교 메일 인증. 앱이 못 바꿈 (인증은 나중, 명세 13장)
   created_at      timestamptz not null default now(),
-  updated_at      timestamptz not null default now()
+  updated_at      timestamptz not null default now(),
+  constraint profile_nickname_no_contact check (not contact_like(nickname))
 );
 
 create or replace function profile_touch_updated_at() returns trigger language plpgsql as $$
@@ -275,8 +284,8 @@ create policy profile_own on profile for all to authenticated
 revoke all on profile from anon;
 revoke insert, update on profile from authenticated;
 grant select, delete on profile to authenticated;
-grant insert (user_id, nickname, school, major_field, grade, show_school, show_major, show_grade, show_qa) on profile to authenticated;
-grant update (nickname, school, major_field, grade, show_school, show_major, show_grade, show_qa) on profile to authenticated;
+grant insert (user_id, nickname, school, major_field, grade, bio, show_school, show_major, show_grade, show_bio, show_qa) on profile to authenticated;
+grant update (nickname, school, major_field, grade, bio, show_school, show_major, show_grade, show_bio, show_qa) on profile to authenticated;
 
 
 -- ---------- 공개 카드 뷰 (11/20, 재현 임시 뷰를 대신함) ----------

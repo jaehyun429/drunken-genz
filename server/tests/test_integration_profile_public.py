@@ -44,8 +44,20 @@ def test_profile_own_row_and_locked_columns():
     run(go())
 
 
-@pytest.mark.parametrize("nick", ["가", " 가 ", "가" * 13])
-def test_profile_nickname_length(nick):
+def test_profile_starts_all_private():
+    async def go():
+        conn = await _conn()
+        me = await _user(conn)
+        row = await as_app(conn, me, "insert into profile (nickname, bio) values ('기록하는 고양이', '배울 점이 분명한 역할을') "
+                                     "returning show_school, show_major, show_grade, show_bio, show_qa, school_verified")
+        assert not any(row.values())                       # 처음엔 전부 비공개, 인증 안 됨
+        await conn.close()
+    run(go())
+
+
+@pytest.mark.parametrize("nick", ["가", " 가 ", "가" * 13,
+                                  "010-1234-5678", "두디01012345678", "a@b.co", "dudi@gmail.com"])   # 연락처 모양
+def test_profile_nickname_rejected(nick):
     async def go():
         conn = await _conn()
         me = await _user(conn)

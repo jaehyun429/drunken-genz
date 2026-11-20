@@ -224,11 +224,12 @@ RLS: 본인 전부. 앱이 시작·포그라운드 복귀 시 upsert, 로그아�
 | 컬럼 | 타입 |
 |---|---|
 | user_id | uuid PK. 기본 `auth.uid()` |
-| nickname | text, 필수, 2~12자 (앞뒤 공백 빼고) `TODO(기획)` |
-| school, major_field | text, nullable, 40자 |
+| nickname | text, 필수, 2~12자 (앞뒤 공백 빼고). 전화번호·이메일 모양이면 DB가 막음 (피그마 PRF-⑨) |
+| school | text, nullable, 40자. 남에게는 "서울 소재 대학"처럼 넓혀서 |
+| major_field | text, nullable, 40자. 전공 계열 ("인문계열") `TODO(기획): 값 목록` |
 | grade | text, nullable, 10자 `TODO(기획): 값 목록` |
-| show_school, show_major, show_grade | bool, 기본 false |
-| show_qa | bool, 기본 false |
+| bio | text, nullable, 100자. 공개용 한 문장 (PRF-⑩) `TODO(기획): 길이` |
+| show_school, show_major, show_grade, show_bio, show_qa | bool, **전부 기본 false** — 처음엔 다 비공개 (11/20) |
 | school_verified | bool, 기본 false — 앱이 못 바꿈 |
 | created_at, updated_at | timestamptz. `updated_at`은 트리거로 자동 |
 
@@ -566,7 +567,7 @@ try_next 2 + imagine 2. 입력 해시 캐시.
 
 ## 변경 이력
 
-- 11/20 (소윤) — `profile` 글자 수·기본값 확정(1.7). `published_snapshot` 모양·`masked` 형식 확정(1.1). `experience_public` 실제 뷰로 바꾸고 `visibility` 칸 추가
+- 11/20 (소윤) — `profile` 글자 수 확정, `bio`·`show_bio` 추가, 공개 기본값 전부 false, 닉네임에 연락처 금지(1.7). `published_snapshot` 모양·`masked` 형식 확정(1.1). `experience_public` 실제 뷰로 바꾸고 `visibility` 칸 추가
 - 11/18 (소윤) — 공식 활동: 검색은 `verified`만 + 초성, 기수 묶음(`periods`)·분야·유형 응답에 추가. `POST /activities` 없앰 (사용자 등록 없음). `official_activity`에 `genre`·`type`·`series_key`
 - v0.3 (11/14) — 소윤 검토 반영. 탐색·카드·반응 담당 재현으로 통일. 차단 필터를 뷰 → FastAPI 쿼리로. 14일 미답변 Q&A 삭제 → `qa.status = no_answer`로 접기 (POL-12). `/publish/confirm`에 `accept_questions` 추가, `/publish/settings` 신설. `updated_at` 트리거 자동 갱신 명시. `experience_log` 저장 시 본인 경험 확인. `/push/devices` 두 개 삭제 (앱 직접). helpful_reason 유니크 (experience_id, user_id) 확정 (POL-14). 답변 500자·24시간 규칙 `TODO(기획)`
 - v0.2 (11/09) — 앱·서버 경계 원칙 반영. 앱 직접 접근을 내 데이터로 제한, 앱이 못 바꾸는 컬럼 명시. `draft_step` 삭제, `published_at` 추가, `push_device` 테이블 신설, `helpful_count` 삭제. 탐색 목록 `/cards`·카드 상세 `/cards/{id}`·`/activities/*`·`/qa/*`·`/reactions`·`/reports`·`/profiles/{id}`·`/push/devices` 신설. `/publish` → preview/confirm/unpublish 분리. `/export` 삭제. 에러 코드 14개·형식·호환 규칙. PublicCard 통일
