@@ -43,9 +43,22 @@ RELATED_REASON_MAX = 60          # "왜 관련 있는지" 한 줄 상한. 넘으
 RELATED_LLM_ATTEMPTS = 2         # /related 는 앱이 기다리는 호출이라 질문 생성(3회)보다 덜 재시도. 실패하면 유사도 순으로 내려주고 캐시 안 함
 RELATED_NOTIFY_RECHECK_LIMIT = 200  # 새 공개 카드 하나당 맞춰볼 notify_on_related 질문 수 상한
 
-# 분석
+# 분석 (CLAUDE.local.md 6장). 아래에서 ANALYSIS_MIN_RECORDS·PATTERN_MIN_EVIDENCE 말고는 명세에 없어 11/15 구현하면서 정한 값
 ANALYSIS_MIN_RECORDS = 3         # 미만이면 잠김. 회차 기록도 셈
-PATTERN_MIN_EVIDENCE = 2
+PATTERN_MIN_EVIDENCE = 2         # 패턴 하나의 근거 기록 수 하한. 회차 기록도 기록 하나로 센다
+ANALYSIS_PROMPT = "analysis_v1"  # app/llm/prompts/<이름>.md
+ANALYSIS_PATTERN_MAX = 5         # 화면에 보이는 패턴 수 상한 (남겨둔 것 + 새로 만든 것). TODO(기획): 화면에 몇 개까지 보이는지
+ANALYSIS_TEXT_MAX = 80           # 패턴 한 문장 길이 상한. 넘으면 버림
+ANALYSIS_EDIT_MAX = 100          # "수정할게요"로 고친 문장 길이 상한. TODO(기획): 명세에 길이 없음. 한 줄(100자)과 같게 둠
+# 패턴 끝맺음. 프롬프트의 말투와 짝이라 같이 바꾼다. 질문(v4)과 같이 존댓말, 평서문 "~요."
+# TODO(기획): 말투는 PRD 7장 톤 규칙이 정한다
+ANALYSIS_ENDING = r"요\.$"
+ANALYSIS_DEDUPE_SIMILARITY = 0.5 # 틀 낱말을 뺀 문자 2-gram 자카드 (analysis/filters.alike). 이상이면 이미 있는 패턴과 겹친다고 보고 버림
+ANALYSIS_BLOCK_SIMILARITY = 0.5  # "아니에요"를 받은 패턴과 이 이상 닮으면 다시 내지 않는다. 낱말이 거의 같은 것만 잡힌다.
+                                 # 바꿔 말한 것은 프롬프트의 "만들지 않을 문장"에 맡긴다. TODO(기획): "비슷한 내용"의 범위
+ANALYSIS_INPUT_MAX_RECORDS = 60  # LLM 에 넣는 기록 수 상한. 넘으면 최근 것부터. record_count 는 전체를 센다
+ANALYSIS_AVOID_PROMPT_MAX = 20   # 프롬프트의 "만들지 않을 문장"에 넣는 개수 상한 (최근 것부터). 필터는 전부와 견준다
+ANALYSIS_LLM_ATTEMPTS = 2        # /analysis 는 앱이 기다리는 호출이라 질문 생성(3회)보다 덜 재시도. 실패하면 AI_UNAVAILABLE
 
 # 알림
 NOTIFICATION_KEEP_DAYS = 30

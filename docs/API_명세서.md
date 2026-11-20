@@ -511,18 +511,36 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```json
 {
   "locked": false, "record_count": 5,
-  "patterns": [ { "id": "uuid", "text": "...", "evidence": [ { "experience_id": "uuid", "activity_name": "..." } ], "feedback": null } ],
-  "criteria": { "private": "...", "public": "..." },
+  "patterns": [ { "id": "uuid", "text": "...", "evidence": [ { "experience_id": "uuid", "activity_name": "...", "log_id": null, "log_date": null } ], "feedback": null, "edited_text": null } ],
+  "criteria": { "private": null, "public": null },
   "saved_questions": [ ... ],
   "last_updated": "...", "has_new_records": false
 }
 ```
 기록 3개 미만 → `locked: true`. qa·reaction 안 읽음.
 
+`[재현 11/15 구현하면서 채움]`
+- 기록 수 = 경험 + 회차 기록. `locked: true` 면 `patterns: []`, `last_updated: null`, `has_new_records: false`
+- `evidence` 는 2개 이상. 회차 기록이 근거면 `log_id`·`log_date`("2026-10-20") 가 채워지고, 경험이 근거면 둘 다 `null` (추가 필드). 지워진 기록은 근거에서 빠지고, 근거가 2개 미만이 된 패턴은 안 내려감
+- `edited_text`: 사용자가 고친 문장 (추가 필드). 화면에는 이걸 보여주고, `text` 는 AI 가 낸 원래 문장 그대로
+- `patterns` 는 0개일 수 있음 (반복되는 게 없으면 억지로 안 만듦)
+- 처음 부르면 바로 계산. 그 뒤로는 저장된 결과를 주고, 기록이 바뀌었으면 `has_new_records: true`. 다시 계산은 `force: true` 이고 기록이 바뀌었을 때만
+- `criteria`: **뜻이 정해지지 않아 지금은 둘 다 `null`** (지은 확인 필요). 정해지면 문자열
+- `saved_questions`: 담은 질문. `question` 테이블 컬럼 그대로 (`id, experience_id, source_activity_name, type, axis, text, source, memo, is_done, done_dismissed, linked_experience_id, related_new, created_at`)
+- LLM 실패 → 503 `AI_UNAVAILABLE`, `details.reason` = `connection` | `model`. 저장된 결과는 그대로
+
 #### POST /analysis/feedback
 ```json
 { "pattern_id": "uuid", "feedback": "yes" | "edit" | "no" | "later", "edited_text": "..." }
 ```
+```json
+{ "pattern": { "id": "uuid", "text": "...", "evidence": [ ... ], "feedback": "edit", "edited_text": "...", "hidden": false } }
+```
+`[재현 11/15 구현하면서 채움]`
+- `edit` 는 `edited_text` 1~100자 필수, 없으면 400 `VALIDATION_FAILED`. 다른 값일 땐 `edited_text` 를 무시하고 전에 고친 문장은 남김
+- `no` → `hidden: true`, 목록에서 바로 빠지고 다시 분석해도 닮은 문장을 안 만듦. 다른 값으로 다시 보내면 풀림
+- `yes`·`edit` 패턴은 다시 분석해도 남고, 피드백 없음·`later` 는 새 결과로 바뀜
+- 내 패턴이 아니거나 없으면 404 `NOT_FOUND`
 
 ### 프로필 (소윤)
 
