@@ -107,6 +107,14 @@ app/analysis/        분석 (prompt·filters·generate·service·router)   app/l
 3. `.env` 의 `SUPABASE_JWT_SECRET` 은 Settings → API → JWT Secret. `AUTH_DEV_BYPASS=0`
 4. `experience_log` 테이블은 진행 중 활동의 회차 기록을 질문 입력에 넣을 때 읽음 (소윤 테이블, 읽기만)
 
+### 앱 토큰 검증 (`app/auth.py`)
+앱이 보내는 Supabase access token 의 서명 방식 두 가지를 다 받는다. 토큰 머리의 `alg` 로 고른다.
+- **ES256·RS256**: `.env` 에 `SUPABASE_URL` 만 넣는다. 공개키를 `<SUPABASE_URL>/auth/v1/.well-known/jwks.json` 에서 받아 검증하고 비밀값은 필요 없다. 지금 프로젝트는 Current 키가 ECC(P-256) 라서 이쪽이다 (11/16 확인)
+- **HS256**: 예전 방식. `SUPABASE_JWT_SECRET` 을 넣어 둔 서버만 받는다. 위 3번의 값은 이 경우에만 필요하고, 비워 두거나 예시 값 `change-me` 그대로면 HS256 토큰은 거절한다
+- 공개키는 10분 담아 두고 요청마다 받지 않는다. 모르는 `kid` 가 오면 다시 받되 30초에 한 번까지만. 그래서 Supabase 에서 키를 돌려도 서버를 다시 띄울 필요가 없다. 숫자는 `constants.py` 의 `AUTH_*`
+- `aud` 는 `authenticated`, `iss` 는 `<SUPABASE_URL>/auth/v1` 이어야 한다. 틀리면 401 `UNAUTHENTICATED`. 공개키를 한 번도 못 받았거나 `SUPABASE_URL` 이 비어 있으면 토큰 잘못이 아니므로 500 `INTERNAL`
+- 테스트는 `tests/test_auth.py` (DB 없이 돎). 실제 Supabase 토큰으로는 아직 확인하지 못했다
+
 ## GPU 서버에서 데모 돌리기 (11/17)
 컨테이너 안 `jhjeong/genz` 는 이 레포의 git 체크아웃이다 (11/14 에 바꿈). 새 코드는 `git pull` 로 받는다:
 ```bash

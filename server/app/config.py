@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     database_url: str = "postgresql://postgres:postgres@localhost:54329/genz"
-    supabase_jwt_secret: str = "change-me"
+    supabase_url: str = ""            # https://<프로젝트>.supabase.co  앱 토큰(ES256)을 공개키로 검증할 때 쓴다. 비밀값 아님
+    supabase_jwt_secret: str = ""     # HS256 토큰을 받을 때만. 비워 두면 HS256 토큰은 거절
     auth_dev_bypass: bool = False
     webhook_secret: str = "change-me"
 
