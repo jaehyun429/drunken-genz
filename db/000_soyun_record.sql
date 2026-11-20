@@ -240,3 +240,53 @@ drop trigger if exists experience_deleted_webhook on experience;
 create trigger experience_deleted_webhook after delete on experience
   for each row when (old.visibility <> 'private')
   execute function experience_webhook();
+
+
+-- ---------- 프로필 (11/20) ----------
+-- 앱이 가입 때 자기 행을 직접 만들고 고친다. 남의 프로필은 FastAPI /profiles/{id} 로만 (칸마다 공개 여부가 달라 RLS 로 못 거름)
+-- 글자 수는 server/app/constants.py PROFILE_* 와 같아야 한다
+create table if not exists profile (
+  user_id         uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  nickname        text not null check (char_length(btrim(nickname)) between 2 and 12),   -- TODO(기획): 닉네임 길이·중복 허용 여부
+  school          text check (char_length(school) <= 40),
+  major_field     text check (char_length(major_field) <= 40),
+  grade           text check (char_length(grade) <= 10),                                 -- TODO(기획): 학년 고르는 값 목록
+  -- 칸마다 남에게 보일지. 기본은 안 보임 (기록이 나만 보기로 시작하는 것과 같게). TODO(기획): 기본값 확인
+  show_school     boolean not null default false,
+  show_major      boolean not null default false,
+  show_grade      boolean not null default false,
+  show_qa         boolean not null default false,
+  school_verified boolean not null default false,   -- 학교 메일 인증. 앱이 못 바꿈 (인증은 나중, 명세 13장)
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create or replace function profile_touch_updated_at() returns trigger language plpgsql as $$
+begin new.updated_at := now(); return new; end $$;
+drop trigger if exists profile_touch_updated_at_trg on profile;
+create trigger profile_touch_updated_at_trg before update on profile
+  for each row execute function profile_touch_updated_at();
+
+alter table profile enable row level security;
+drop policy if exists profile_own on profile;
+create policy profile_own on profile for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+revoke all on profile from anon;
+revoke insert, update on profile from authenticated;
+grant select, delete on profile to authenticated;
+grant insert (user_id, nickname, school, major_field, grade, show_school, show_major, show_grade, show_qa) on profile to authenticated;
+grant update (nickname, school, major_field, grade, show_school, show_major, show_grade, show_qa) on profile to authenticated;
+
+
+-- ---------- 공개 카드 뷰 (11/20, 재현 임시 뷰를 대신함) ----------
+-- 공개된(private 아님) + 스냅샷이 있는 경험만. 원본 칸은 하나도 안 내보낸다 — 카드 내용은 published_snapshot 안에만
+-- 읽는 곳: 재현 탐색·카드 상세·관련 경험(server/app/cards/public.py), 소윤 프로필 카드. 전부 FastAPI. 앱은 못 읽음
+-- 차단 관계는 뷰가 모름 (서버가 service_role 로 읽음) → 읽는 쿼리에서 block 으로 거른다
+-- 칸을 늘릴 땐 맨 뒤에만 (create or replace view 는 칸 순서·이름을 못 바꿈)
+create or replace view experience_public with (security_invoker = true) as
+  select e.id as experience_id, e.user_id, e.published_snapshot, e.masked, e.published_at, e.accept_questions,
+         e.visibility                                    -- anonymous / profile. 프로필 화면은 profile 만
+  from experience e
+  where e.visibility <> 'private' and e.published_snapshot is not null;
+revoke all on experience_public from anon, authenticated;

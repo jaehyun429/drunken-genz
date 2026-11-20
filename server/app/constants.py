@@ -48,6 +48,16 @@ ACTIVITY_SEARCH_MIN_CHARS = 2    # 띄어쓰기 빼고 센다
 ACTIVITY_SEARCH_LIMIT = 5
 ACTIVITY_RECORD_COUNT_MIN = 5    # 기록 수가 이보다 적으면 null (명세 1.8)
 
+# 프로필 (소윤). db/000_soyun_record.sql profile 의 check 와 같아야 함
+PROFILE_NICKNAME_MIN = 2         # TODO(기획): 닉네임 길이
+PROFILE_NICKNAME_MAX = 12
+PROFILE_SCHOOL_MAX = 40
+PROFILE_MAJOR_MAX = 40
+PROFILE_GRADE_MAX = 10
+
+# 공개 스냅샷 (소윤). 모양을 바꾸면 올림 — 읽는 쪽(cards/public.py, embedding/text.py)이 옛 모양을 구분할 수 있게
+SNAPSHOT_VERSION = 1
+
 # 분석
 ANALYSIS_MIN_RECORDS = 3         # 미만이면 잠김. 회차 기록도 셈
 PATTERN_MIN_EVIDENCE = 2
