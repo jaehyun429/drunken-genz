@@ -28,10 +28,10 @@ def _user() -> uuid.UUID:
     return uid
 
 
-def _activity(name, status="verified", aliases=(), period=None, series=None, created_by=None, genre=None):
-    return run(_exec("insert into official_activity (name, status, aliases, period, series_key, created_by, genre) "
-                     "values ($1, $2, $3, $4, $5, $6, $7) returning id",
-                     name, status, list(aliases), period, series, created_by, genre))
+def _activity(name, status="verified", aliases=(), created_by=None, genre=None):
+    return run(_exec("insert into official_activity (name, status, aliases, created_by, genre) "
+                     "values ($1, $2, $3, $4, $5) returning id",
+                     name, status, list(aliases), created_by, genre))
 
 
 @pytest.fixture
@@ -82,16 +82,15 @@ def test_pending_not_searchable(client, tok):
     assert _search(client, me, tok) == []
 
 
-def test_series_grouped_latest_first_and_record_count(client, tok):
+def test_one_row_per_activity_and_record_count(client, tok):
     me = _user()
-    old = _activity(f"서포터즈 {tok}", period="9기", series=tok)
-    new = _activity(f"서포터즈 {tok}", period="13기", series=tok)
+    aid = _activity(f"서포터즈 {tok}")
     items = _search(client, me, tok)
-    assert len(items) == 1 and items[0]["id"] == str(new)
-    assert [p["period"] for p in items[0]["periods"]] == ["13기", "9기"]
-    for i in range(5):                                          # 기수 합으로 5개 → 숫자 보임
-        run(_exec("insert into experience (user_id, activity_name, official_activity_id, genre, role, period_start, did_chips) "
-                  "values ($1, '서포터즈', $2, '경영·마케팅', '기자', '2026-01', '{취재}')", me, old if i % 2 else new))
+    assert len(items) == 1 and "period" not in items[0] and "periods" not in items[0]   # 기수는 기록에서 고름 (11/20)
+    for i in range(5):                                          # 기수가 달라도 같은 활동 → 5개 → 숫자 보임
+        run(_exec("insert into experience (user_id, activity_name, official_activity_id, official_period, genre, role, "
+                  "period_start, did_chips) values ($1, '서포터즈', $2, $3, '경영·마케팅', '기자', '2026-01', '{취재}')",
+                  me, aid, 9 + i))
     assert _search(client, me, tok)[0]["record_count"] == 5
 
 

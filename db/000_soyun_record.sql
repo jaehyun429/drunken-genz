@@ -12,7 +12,6 @@ create table if not exists official_activity (
   id          uuid primary key default gen_random_uuid(),
   name        text not null check (char_length(name) between 2 and 40),
   organizer   text,
-  period      text,                                   -- "2026-1" 등, 회차마다 다른 행
   aliases     text[] not null default '{}' check (cardinality(aliases) <= 3),
   status      text not null default 'pending' check (status in ('pending', 'verified')),
   created_by  uuid references auth.users(id) on delete set null,
@@ -25,9 +24,11 @@ alter table official_activity
   add column if not exists genre text check (genre in ('행사 운영', '개발·IT', '디자인·콘텐츠', '음악·공연', '연구·실험',
                                                         '교육·멘토링', '경영·마케팅', '서비스·응대', '기타')),
   add column if not exists type text check (type in ('동아리·학회', '팀플·공모전', '대외활동', '학생회·행사', '아르바이트',
-                                                      '봉사·멘토링', '수업·캡스톤')),
-  -- 같은 활동의 기수들을 묶는 글자 (결정 01 3장 c안). 비면 혼자 한 묶음. 검색은 묶음마다 최신 기수 하나만
-  add column if not exists series_key text;
+                                                      '봉사·멘토링', '수업·캡스톤'));
+-- 11/20: 기수는 목록에 안 넣는다. 활동마다 한 줄이고, 사용자가 기록할 때 experience.official_period 로 고른다
+-- (처음 만든 테이블엔 기수 칸이 있었음. 다시 돌리면 지움 — 그 칸을 쓰던 인덱스 먼저)
+drop index if exists official_activity_name_period_key;
+alter table official_activity drop column if exists period, drop column if exists series_key;
 
 -- 검색용 글자: 이름 + 별칭, 소문자, 띄어쓰기 없앰. "취업 박람회" 로 "취업박람회" 를 찾게
 create or replace function activity_search_text(name text, aliases text[]) returns text
@@ -54,10 +55,10 @@ begin
   return out;
 end $$;
 
--- 같은 이름(띄어쓰기·대소문자 무시)·같은 기수는 한 행만. 목록 넣기 스크립트가 이걸로 덮어쓴다 (server/scripts/import_activities.py)
+-- 같은 이름(띄어쓰기·대소문자 무시)은 한 행만. 목록 넣기 스크립트가 이걸로 덮어쓴다 (server/scripts/import_activities.py)
 -- activity_search_text 를 쓰므로 그 함수 뒤에 있어야 함 (빈 DB 에서 순서대로 돌 때)
-create unique index if not exists official_activity_name_period_key
-  on official_activity (activity_search_text(name, '{}'), coalesce(period, ''));
+create unique index if not exists official_activity_name_key
+  on official_activity (activity_search_text(name, '{}'));
 create index if not exists official_activity_search_idx on official_activity
   using gin (activity_search_text(name, aliases) gin_trgm_ops) where status = 'verified';
 
@@ -80,6 +81,7 @@ create table if not exists experience (
   status               text not null default 'done' check (status in ('in_progress', 'done')),
   activity_name        text not null check (char_length(activity_name) between 2 and 40),
   official_activity_id uuid references official_activity(id) on delete set null,
+  official_period      smallint check (official_period between 1 and 99),   -- 기수 (선택). 공식 활동마다 1~99 중 사용자가 고름 (11/20)
   -- 분야 (화면 말은 "분야", 코드 이름은 genre 유지 — 재현 코드·PublicCard 가 genre 로 읽음). 11/16 REC-02 시안
   genre                text not null check (genre in ('행사 운영', '개발·IT', '디자인·콘텐츠', '음악·공연', '연구·실험',
                                                        '교육·멘토링', '경영·마케팅', '서비스·응대', '기타')),
@@ -111,6 +113,8 @@ create table if not exists experience (
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );
+-- 11/20 추가. 이미 만든 Supabase 에 다시 돌려도 됨
+alter table experience add column if not exists official_period smallint check (official_period between 1 and 99);
 create index if not exists experience_user_created_idx on experience (user_id, created_at desc);   -- 보관소 최신순 cursor
 
 -- updated_at = 저장 후 수정의 버전. 앱은 .eq('updated_at', 받은 값 그대로) 로 수정하고 0행이면 VERSION_CONFLICT
@@ -135,10 +139,10 @@ create policy experience_own on experience for all to authenticated
 revoke all on experience from anon;
 revoke insert, update on experience from authenticated;
 grant select, delete on experience to authenticated;
-grant insert (user_id, status, activity_name, official_activity_id, genre, type, role, period_start, period_end, place,
+grant insert (user_id, status, activity_name, official_activity_id, official_period, genre, type, role, period_start, period_end, place,
               did_chips, did_notes, custom_chips, conditions, situation_chips, situation_notes, emotion_chips,
               one_liner, ai_tags, photos, pinned) on experience to authenticated;
-grant update (status, activity_name, official_activity_id, genre, type, role, period_start, period_end, place,
+grant update (status, activity_name, official_activity_id, official_period, genre, type, role, period_start, period_end, place,
               did_chips, did_notes, custom_chips, conditions, situation_chips, situation_notes, emotion_chips,
               one_liner, ai_tags, photos, pinned) on experience to authenticated;
 

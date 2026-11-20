@@ -44,6 +44,8 @@ def test_app_writes_own_experience_but_not_locked_columns():
         conn = await asyncpg.connect(DB)
         me, other = await _user(conn), await _user(conn)
         row = await as_app(conn, me, EXP, "done")                    # user_id 는 기본값 auth.uid()
+        assert await as_app(conn, me, "update experience set official_period = 13 where id = $1 returning official_period",
+                            row["id"], fetch="fetchval") == 13      # 기수는 앱이 고름
         assert await conn.fetchval("select user_id from experience where id = $1", row["id"]) == me
         assert await as_app(conn, other, "select * from experience where id = $1", row["id"]) is None  # 남은 못 봄
         for col, val in [("visibility", "'anonymous'"), ("published_snapshot", "'{}'"), ("accept_questions", "false"),
@@ -88,6 +90,8 @@ def test_updated_at_is_the_version():
     ("one_liner", f"'{'x' * 101}'"),
     ("genre", "'알바'"),                                     # 분야 9개 밖
     ("type", "'여행'"),                                      # 유형 7개 밖
+    ("official_period", "0"),                                # 기수 1~99
+    ("official_period", "100"),
 ])
 def test_experience_checks(cols, vals):
     async def go():
