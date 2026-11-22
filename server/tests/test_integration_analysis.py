@@ -16,6 +16,7 @@ P_PEOPLE = {"text": "손님을 직접 만나는 일을 여러 번 골랐어요."
 class FakeLLM:
     def __init__(self):
         self.calls, self.users, self.answer, self.fail = 0, [], [P_TIRED, P_OFFLINE], False
+        self.existing = []      # 번호가 붙은 문장(p1, n1)의 근거를 다시 센 것
 
     async def __call__(self, system, user, schema, **kw):
         from app.llm.client import LLMConnectionError, LLMResult
@@ -23,7 +24,7 @@ class FakeLLM:
         self.users.append(user)
         if self.fail:
             raise LLMConnectionError("가짜 연결 실패")
-        return LLMResult(data={"patterns": self.answer}, model="fake", prompt_tokens=1, completion_tokens=1, attempts=1)
+        return LLMResult(data={"patterns": self.answer, "existing": self.existing}, model="fake", prompt_tokens=1, completion_tokens=1, attempts=1)
 
 
 @pytest.fixture
@@ -94,7 +95,9 @@ def test_locked_under_three_records_and_no_llm_call(env):
     body = r.json()
     assert body["locked"] is True and body["record_count"] == 2 and body["patterns"] == []
     assert body["last_updated"] is None and body["has_new_records"] is False
-    assert set(body) == {"locked", "record_count", "patterns", "criteria", "saved_questions", "last_updated", "has_new_records"}
+    assert set(body) == {"locked", "record_count", "patterns", "criteria", "saved_questions", "last_updated", "has_new_records",
+                         "reask_count"}
+    assert body["reask_count"] == 0
     assert fake.calls == 0
     assert db(lambda c: c.fetchval("select count(*) from analysis_run where user_id = $1", uid)) == 0
 
@@ -110,7 +113,7 @@ def test_logs_count_as_records_and_can_be_evidence(env):
     assert body["locked"] is False and body["record_count"] == 3 and fake.calls == 1
     assert "[e1.l1] 카페 알바 회차 기록 2026-10-20" in fake.users[0] and "[e1.l2]" in fake.users[0]
     [pat] = body["patterns"]
-    assert pat["feedback"] is None and pat["edited_text"] is None
+    assert pat["feedback"] is None and pat["edited_text"] is None and pat["reask"] is None
     assert pat["evidence"] == [
         {"experience_id": str(eid), "activity_name": "카페 알바", "log_id": None, "log_date": None},
         {"experience_id": str(eid), "activity_name": "카페 알바", "log_id": str(l1), "log_date": "2026-10-20"}]
@@ -143,7 +146,9 @@ def test_feedback_decides_what_survives_a_recompute(env):
     uid = new_user()
     three(uid)
     fake.answer = [P_TIRED, P_OFFLINE, P_PEOPLE]
-    tired, offline, people = call(client, uid).json()["patterns"]
+    offline, tired, people = call(client, uid).json()["patterns"]
+    assert offline["text"] == P_OFFLINE["text"] and len(offline["evidence"]) == 3, "근거 수 많은 순, 같으면 모델이 낸 순서"
+    assert [tired["text"], people["text"]] == [P_TIRED["text"], P_PEOPLE["text"]]
 
     def fb(pid, feedback, edited=None):
         return client.post("/v1/analysis/feedback", headers=auth(uid),
@@ -178,24 +183,109 @@ def test_feedback_decides_what_survives_a_recompute(env):
     assert [p["text"] for p in after] == [P_TIRED["text"], P_PEOPLE["text"], "고객 응대를 맡은 기록이 네 개 있어요."]
     assert [p["id"] for p in after][:2] == [tired["id"], people["id"]]
     prompt = fake.users[-1]
-    assert "## 이미 있는 문장\n- " + P_TIRED["text"] in prompt and "## 만들지 않을 문장\n- " + P_OFFLINE["text"] in prompt
+    assert "## 이미 있는 문장\n- [p1] " + P_TIRED["text"] in prompt and "## 만들지 않을 문장\n- [n1] " + P_OFFLINE["text"] in prompt
     assert "손님과 얘기하는 일을 골랐어요" not in prompt, "사용자가 고친 문장은 입력에 넣지 않는다"
     assert db(lambda c: c.fetchval("select count(*) from analysis_pattern where user_id = $1 and hidden", uid)) == 1
 
 
-def test_later_is_replaced_and_no_can_be_undone(env):
+def fb(client, uid, pid, feedback):
+    r = client.post("/v1/analysis/feedback", headers=auth(uid), json={"pattern_id": pid, "feedback": feedback})
+    assert r.status_code == 200, r.text
+    return r.json()["pattern"]
+
+
+def by_text(patterns):
+    return {p["text"]: p for p in patterns}
+
+
+def test_later_stays_as_pending_and_no_can_be_undone(env):
+    """기능명세서 15장: 아직 모르겠어요는 문장을 그대로 두고, 근거가 늘기 전에는 다른 패턴 뒤로 밀린다."""
     client, fake = env
     uid = new_user()
     three(uid)
-    tired, offline = call(client, uid).json()["patterns"]
-    post = lambda pid, f: client.post("/v1/analysis/feedback", headers=auth(uid), json={"pattern_id": pid, "feedback": f})
-    assert post(tired["id"], "later").json()["pattern"]["feedback"] == "later"
-    post(offline["id"], "no")
-    assert post(offline["id"], "yes").json()["pattern"]["hidden"] is False
-    add_exp(uid, "공모전", 1)
+    offline, tired = call(client, uid).json()["patterns"]
+    assert fb(client, uid, tired["id"], "later")["feedback"] == "later"
+    fb(client, uid, offline["id"], "no")
+    assert fb(client, uid, offline["id"], "yes")["hidden"] is False
+    add_exp(uid, "공모전", 0)
     fake.answer = [P_PEOPLE]
-    after = call(client, uid, force=True).json()["patterns"]
-    assert [p["text"] for p in after] == [P_OFFLINE["text"], P_PEOPLE["text"]], "later 는 지우고 yes 는 남긴다"
+    body = call(client, uid, force=True).json()
+    after = body["patterns"]
+    assert [p["text"] for p in after] == [P_OFFLINE["text"], P_PEOPLE["text"], P_TIRED["text"]], "확인 중은 맨 뒤"
+    assert after[2]["id"] == tired["id"] and after[2]["feedback"] == "later" and after[2]["reask"] is None
+    assert body["reask_count"] == 0
+
+
+def test_pending_pattern_is_asked_again_when_its_evidence_grows(env):
+    client, fake = env
+    uid = new_user()
+    e1, e2, e3 = three(uid)
+    fake.answer = [P_TIRED]
+    [tired] = call(client, uid).json()["patterns"]
+    fb(client, uid, tired["id"], "later")
+
+    # 새 기록이 생겼지만 그 패턴의 근거로 붙지 않았다 → 그대로 확인 중
+    add_exp(uid, "공모전", 0)
+    fake.answer, fake.existing = [], [{"id": "p1", "evidence": ["e1", "e2"]}]
+    body = call(client, uid, force=True).json()
+    assert body["reask_count"] == 0 and body["patterns"][0]["reask"] is None
+    assert "## 이미 있는 문장\n- [p1] " + P_TIRED["text"] in fake.users[-1]
+
+    # 새 기록이 근거로 붙었다 → '기록이 늘었어요. 다시 확인해볼까요?'
+    e5 = add_exp(uid, "학원 조교", 0)
+    fake.existing = [{"id": "p1", "evidence": ["e1", "e2", "e5"]}]
+    body = call(client, uid, force=True).json()
+    [pat] = body["patterns"]
+    assert pat["id"] == tired["id"] and pat["feedback"] == "later" and pat["reask"] == "more_evidence"
+    assert [ev["experience_id"] for ev in pat["evidence"]] == [str(e1), str(e2), str(e5)] and body["reask_count"] == 1
+
+    # 다시 묻는 동안에는 근거 수 순위에 들어온다. 더 뚜렷한 패턴이 5개 있으면 한도 밖으로 빠진다 (상태는 남는다)
+    assert fb(client, uid, tired["id"], "later")["reask"] is None, "응답하면 다시 묻기 표시가 꺼진다"
+    add_exp(uid, "축제 스태프", 0)
+    fake.existing = [{"id": "p1", "evidence": ["e1", "e2", "e5"]}]
+    fake.answer = [{"text": t, "evidence": ["e1", "e2", "e3", "e4"]} for t in (
+        "오프라인으로 한 활동이 네 개 있어요.", "손님을 직접 만나는 일을 여러 번 골랐어요.",
+        "주말 근무를 맡았다고 적었어요.", "마감 정리를 혼자 끝낸 날을 남겼어요.", "신메뉴 설명을 준비한 일을 적었어요.")]
+    body = call(client, uid, force=True).json()
+    assert len(body["patterns"]) == 5 and tired["id"] not in [p["id"] for p in body["patterns"]]
+    assert db(lambda c: c.fetchval("select feedback from analysis_pattern where id = $1", uuid.UUID(tired["id"]))) == "later"
+
+
+def test_no_comes_back_once_when_new_records_repeat_it(env):
+    """15장: 아니에요는 숨기고, 기록 5개 이후 새 기록에서 또 보일 때만 한 번 다시 보여준다. 또 아니에요면 영구 제외."""
+    client, fake = env
+    uid = new_user()
+    three(uid)
+    fake.answer = [P_TIRED]
+    [tired] = call(client, uid).json()["patterns"]
+    assert fb(client, uid, tired["id"], "no")["hidden"] is True
+    fake.answer = []
+
+    def update(existing):
+        fake.existing = existing
+        return call(client, uid, force=True).json()
+
+    add_exp(uid, "공모전", 0)                                   # 기록 4개: 새 기록에 있어도 아직 아니다
+    assert update([{"id": "n1", "evidence": ["e4"]}])["patterns"] == []
+    assert "## 만들지 않을 문장\n- [n1] " + P_TIRED["text"] in fake.users[-1]
+    add_exp(uid, "학원 조교", 0)                                # 기록 5개인데 모델이 옛 기록만 댔다
+    assert update([{"id": "n1", "evidence": ["e3"]}])["patterns"] == []
+    e6 = add_exp(uid, "축제 스태프", 0)
+    body = update([{"id": "n1", "evidence": ["e1", "e4", "e6"]}])
+    [pat] = body["patterns"]
+    assert pat["id"] == tired["id"] and pat["feedback"] is None
+    assert pat["reask"] == "repeated" and pat["reask_new_count"] == 2 and body["reask_count"] == 1
+    assert len(pat["evidence"]) == 4 and pat["evidence"][-1]["experience_id"] == str(e6)
+
+    add_exp(uid, "도서관 근로", 0)                              # 응답 없이 다시 분석해도 그대로 묻는다
+    [pat] = update([])["patterns"]
+    assert pat["id"] == tired["id"] and pat["reask"] == "repeated"
+
+    assert fb(client, uid, tired["id"], "no")["hidden"] is True
+    add_exp(uid, "멘토링", 0)
+    assert update([{"id": "n1", "evidence": ["e8"]}])["patterns"] == [], "두 번째 아니에요는 영구 제외"
+    row = db(lambda c: c.fetchrow("select hidden, excluded, resurfaced from analysis_pattern where id = $1", uuid.UUID(tired["id"])))
+    assert tuple(row) == (True, True, True)
 
 
 def test_llm_failure_is_ai_unavailable_and_stores_nothing(env):

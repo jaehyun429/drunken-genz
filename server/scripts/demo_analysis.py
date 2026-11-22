@@ -43,6 +43,9 @@ async def run(records, existing, blocked, need, title):
         print(f"  · {p.text}\n      ← {where}")
     for text, why in out.dropped:
         print(f"  ✗ 버림: {text}  ({why})")
+    labels = {f"p{i}": t for i, t in enumerate(existing, 1)} | {f"n{i}": t for i, t in enumerate(blocked, 1)}
+    for label, keys in out.rechecked.items():      # 남긴 문장(p)·숨긴 문장(n)의 근거를 다시 센 것
+        print(f"  ↻ [{label}] {labels[label]}\n      ← {', '.join(keys) or '(없음)'}")
     return out
 
 

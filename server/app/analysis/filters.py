@@ -96,3 +96,20 @@ def apply(raw: list, valid_keys: set[str], existing: list[str], blocked: list[st
         if len(kept) < need:
             kept.append(Found(text=text, keys=keys))
     return kept, dropped
+
+
+def recheck(raw: list, valid_keys: set[str], labels: set[str]) -> dict[str, list[str]]:
+    """LLM 출력의 existing → {문장 번호: 기록 번호들}. 우리가 보낸 문장 번호와 입력에 있는 기록 번호만 남긴다."""
+    out: dict[str, list[str]] = {}
+    for it in raw:
+        if not isinstance(it, dict) or not isinstance(it.get("id"), str):
+            continue
+        label = it["id"].strip().strip("[]")
+        if label not in labels:
+            continue
+        keys = out.setdefault(label, [])
+        for k in it.get("evidence") or []:
+            k = k.strip().strip("[]") if isinstance(k, str) else ""
+            if k in valid_keys and k not in keys:
+                keys.append(k)
+    return out
