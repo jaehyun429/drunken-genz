@@ -11,6 +11,7 @@ from .embedding.router import router as embedding_router
 from .related.router import router as related_router
 from .analysis.router import router as analysis_router
 from .questions import sweep
+from .notifications import scheduler as notify_scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -19,8 +20,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 async def lifespan(_: FastAPI):
     await db.connect()
     task = asyncio.create_task(sweep.run_forever())   # 웹훅 놓친 경험 주기 점검
+    notify_task = asyncio.create_task(notify_scheduler.run_forever())   # 밀린 푸시, 오래된 알림 삭제
     yield
     task.cancel()
+    notify_task.cancel()
     await db.close()
 
 

@@ -84,3 +84,10 @@ NOTIFICATION_KEEP_DAYS = 30
 QUIET_START = "22:00"
 QUIET_END = "08:00"
 TZ = "Asia/Seoul"
+# 푸시 (이슈 #18). 아래는 명세에 없어 11/22 구현하면서 정한 값
+NOTIFY_TICK_S = 60                # 밀린 푸시를 보는 주기. 방해 금지가 끝난 뒤 묶음 푸시도 이 주기 안에 나간다 (08:00~08:01)
+NOTIFY_PURGE_EVERY_TICKS = 60     # 오래된 알림 삭제는 한 시간에 한 번
+PUSH_BATCH = 500                  # 한 번에 보는 알림 수
+PUSH_MAX_AGE_H = 24               # 이보다 오래 밀린 알림은 푸시하지 않는다 (서버가 오래 꺼져 있었을 때 한꺼번에 쏟아지지 않게)
+PUSH_CHUNK = 100                  # Expo 가 한 요청에 받는 메시지 수 상한
+PUSH_TIMEOUT_S = 10.0

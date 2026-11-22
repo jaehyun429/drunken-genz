@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     embed_api_key: str = "x"
     embed_timeout_s: float = 30.0
 
+    # 푸시 — Expo Push. 토큰은 Expo 프로젝트에서 "push security"를 켰을 때만 필요
+    expo_push_url: str = "https://exp.host/--/api/v2/push/send"
+    expo_access_token: str = ""
+
 
 @lru_cache
 def settings() -> Settings:

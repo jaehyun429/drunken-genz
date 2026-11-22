@@ -1,8 +1,8 @@
-# API 명세서 v0.3.3
+# API 명세서 v0.3.4
 
-v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영 → v0.3.1 (11/14) · 재현 섹션(질문·알림·백그라운드) 구현 기준으로 갱신 → v0.3.2 (11/17) · 질문 생성 11/14 기획 변경 반영 (4개 고정, 더 적어보기, 재생성 24시간) → v0.3.3 (11/22) · 분석 응답 처리 11/16 기획 변경 반영 (근거 수 순, 확인 중, 아니에요 한 번 다시)
+v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영 → v0.3.1 (11/14) · 재현 섹션(질문·알림·백그라운드) 구현 기준으로 갱신 → v0.3.2 (11/17) · 질문 생성 11/14 기획 변경 반영 (4개 고정, 더 적어보기, 재생성 24시간) → v0.3.3 (11/22) · 분석 응답 처리 11/16 기획 변경 반영 (근거 수 순, 확인 중, 아니에요 한 번 다시) → v0.3.4 (11/22) · 알림 구현 기준으로 갱신 (푸시 판단 컬럼, 묶음 함수, 푸시 data 모양)
 
-> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목, `[v0.3.1]`은 재현 PR 에서 바뀐 곳, `[v0.3.2]`는 11/14 기획 변경(PRD 7.2·7.2.1, 기능명세서 14.1)을 반영한 곳, `[v0.3.3]`은 11/16 기획 변경(기능명세서 15장)을 반영한 곳. 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
+> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목, `[v0.3.1]`은 재현 PR 에서 바뀐 곳, `[v0.3.2]`는 11/14 기획 변경(PRD 7.2·7.2.1, 기능명세서 14.1)을 반영한 곳, `[v0.3.3]`은 11/16 기획 변경(기능명세서 15장)을 반영한 곳, `[v0.3.4]`는 알림을 구현하면서 채운 곳(이슈 #18). 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
 
 구조가 두 갈래라 명세도 두 부분입니다.
 
@@ -218,7 +218,18 @@ RLS: 본인 select 만. 쓰기는 서버만.
 | count | int | 묶음 개수. 같은 키로 또 생기면 **행을 새로 만들지 않고 +1** ("질문 1→3개"). 푸시는 첫 건만 (지은 11/14) |
 | read | bool | **앱이 바꿀 수 있는 유일한 컬럼** |
 | pushed_at | timestamptz | 실제 푸시 시각. 방해 금지(22~08 KST)에 생긴 건 null 로 쌓였다가 **08:00 에 "밤사이 알림 N개" 하나로** 푸시 |
+| push_checked_at | timestamptz | 서버가 푸시를 보낼지 판단을 끝낸 시각. null = 아직 안 봄(방해 금지로 미룬 것 포함). 종류를 꺼 뒀거나 기기가 없어 안 보낸 알림은 이 값만 있고 `pushed_at` 은 null. 앱은 안 써도 됨 `[v0.3.4]` |
 | created_at | timestamptz | |
+
+`[v0.3.4]` 구현하면서 채움 (이슈 #18)
+- 행은 DB 함수 `notification_add(user, type, payload, grouped_key, bump)` 로만 만든다 (트리거와 FastAPI 공용, 앱은 실행 못 함). 묶음 키가 같으면 `count + 1`, `payload` 는 가장 최근 것으로, `read` 는 다시 `false`
+- 종류별 묶음: `new_question` 은 같은 카드·같은 날 한 행, `answer` 는 개별, `related_found`·`helpful`·`saved` 는 하루 한 행, `reminder` 는 활동·날짜당 한 번 (기획 "1117 수정" 알림 표)
+- 푸시 `data`: 한 건이면 `{ "notification_id", "type", "payload" }` (payload 는 행의 것 그대로), 아침 묶음이면 `{ "type": "digest", "count": N }` → 앱은 알림함으로
+- 푸시 문구(서버가 만듦): 「활동명」에 질문이 왔어요 / 남긴 질문에 답변이 달렸어요 / 담은 질문에 맞는 경험이 N개 생겼어요 / 누군가 내 경험이 도움이 됐다고 남겼어요 / 「활동명」 이번 주 기록을 남겨볼까요? / 밤사이 알림 N개가 있어요. 알림함 화면 문구는 앱이 `type`·`count`·`payload` 로 만듦
+- 푸시는 1분마다 서버가 밀린 알림을 보고 보냄. 등록된 기기 전부에. 하루 넘게 밀린 것은 안 보냄
+- 방해 금지에 생긴 알림이 2개 이상이면 방해 금지가 끝난 뒤 하나로, 1개면 그 알림 그대로 보냄
+- `notification_setting.types` 에서 끈 종류: **푸시만 안 보내고 알림함에는 쌓임** `TODO(기획)`. `push_enabled: false` 도 같음
+- Q&A 트리거 `notify_on_qa`: 내 카드에 내가 남긴 질문, 서로 차단한 사이는 알림 없음. `qa` 가 실제 테이블이 되면 붙임 (지금은 함수만 있음)
 
 RLS: 본인 select, `read`만 update (컬럼 권한). 생성은 서버(트리거 + FastAPI). 30일 지난 건 cron 삭제. 앱은 모르는 `type`이 오면 일반 알림으로 표시. 알림이 가리키는 글이 없어져도 알림은 남김 → 앱이 "지금은 볼 수 없는 글이에요". 차단한 사람의 활동으로는 알림을 만들지 않음. 익명이라 문구에 닉네임 안 넣음.
 
@@ -598,7 +609,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 - 경험 공개 확정 시 임베딩 생성 — `experience` UPDATE 중 `published_at`·`visibility` 가 바뀔 때만 DB 웹훅 → `POST /v1/internal/experience-published`. 비공개로 내릴 때도 같은 주소 (서버가 `visibility` 보고 분기: 비공개면 그 카드를 담은 `related_cache` 재계산). 웹훅 재전송이 없어 서버 sweep 이 `visibility <> 'private' and embedding is null` 을 보충 `[v0.3.1]`
 - 공개된 경험 삭제 시 — `experience` DELETE 중 지워진 행이 공개(`visibility <> 'private'`)였을 때만 DB 웹훅 → 같은 주소 `POST /v1/internal/experience-published`, `type: "DELETE"`. Supabase 기본 모양 그대로라 `record` 는 `null`, 서버는 `old_record.id` 만 읽는다. 처리는 비공개 내림과 같음 (그 카드를 담은 `related_cache` 재계산). 웹훅이 빠져도 조회할 때 사라진 카드는 걸러지고 다시 계산됨 `[v0.3.1]`
 - 새 공개 카드 → ~~`saved = true`인 질문들~~ **`notify_on_related` 가 켜진 질문**과 매칭 → `related_new` 켬 → **매일 09:00 KST** 사용자당 `related_found` 알림 하나 (경험 수는 질문 여러 개에 맞아도 한 번만 셈, 내 경험이 내 질문에 맞는 건 제외) `[v0.3.1]`
-- 방해 금지(22~08)에 쌓인 알림 → 08:00 에 하나로 묶어 푸시 `[v0.3.1]`
+- 방해 금지(22~08)에 쌓인 알림 → 08:00 에 하나로 묶어 푸시 `[v0.3.1]`. 구현: 1분마다 `push_checked_at is null` 인 알림을 보고, 그 사람의 방해 금지 시간이면 그대로 두고 아니면 보냄 (그래서 묶음 푸시는 08:00~08:01 사이). 사용자가 방해 금지 시간을 바꿨으면 그 시간 기준 `[v0.3.4]`
 - 5분마다 sweep: `question_batch` 없는 경험 → 질문 생성 `[v0.3.1]`
 - 리마인드 푸시 cron (Asia/Seoul 기준, 방해 금지 제외)
 - 30일 지난 알림 삭제, 14일 미답변 Q&A를 `no_answer`로 변경 (삭제 안 함) `[수정 #3]`
@@ -645,6 +656,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 
 ## 변경 이력
 
+- v0.3.4 (11/22) — 알림 구현 기준 갱신 (이슈 #18). `notification.push_checked_at`, DB 함수 `notification_add`, Q&A 트리거 함수 수정(같은 날 두 번째 질문에서 유니크 충돌), 푸시 `data`·문구, 끈 종류는 푸시만 안 보냄. DB 는 `005_jaehyun_notification.sql`. 관련 경험 09:00 알림과 리마인드는 다음 커밋
 - v0.3.3 (11/22) — 분석 응답 처리 11/16 기획 변경 반영 (기능명세서 15장, 이슈 #16). `POST /analysis` 패턴을 근거 수 순으로, `reask`·`reask_new_count`·`reask_count` 추가. `later` 는 다시 분석해도 남음('확인 중'), `no` 는 조건이 맞으면 한 번 다시 보여주고 또 `no` 면 영구 제외. `analysis_pattern` 컬럼 6개 추가. DB 는 `004_jaehyun_analysis_1116.sql`. `criteria`(선택 기준 문장)는 다음 PR
 - v0.3.2 (11/17) — 질문 생성 11/14 기획 변경 반영 (PRD 7.2·7.2.1, 기능명세서 14.1). 질문 4개 고정, `question.type` 에 `write_more`(더 적어보기) 추가, `axis` 에 `decision`·`gap_*` 추가, `question.answer`·`answered_at`, `question_batch.no_new`·`shown_texts`, `POST /questions/{id}/answer` 신설, 재생성 24시간 1회 + 답 1개당 1회, 입력 해시 재사용 삭제, `/related` 는 더 적어보기 400. DB 는 `003_jaehyun_question_1114.sql`
 - v0.3.1 (11/14) — 재현 섹션 구현 기준 갱신. 1.3 `question` 컬럼 추가(`source_activity_name` `axis` `done_experience_id` `done_dismissed` `notify_on_related` `related_new`, `experience_id` nullable), 질문 2~4개. 1.3a `question_batch`·1.3b `related_cache`/`analysis_*` 신규. 1.4 `notification` 에 `count` `pushed_at`, 묶음 유니크. `/questions` 삭제 → 서버 웹훅 + `/questions/retry`. `GET /notifications` 삭제(앱 직접). `/related` 재계산 규칙. 3장 웹훅 주소·sweep·09:00 알림 (지은 11/14 답 반영)
