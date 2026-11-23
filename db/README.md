@@ -5,8 +5,8 @@ API 명세 v0.2 + 레포 CLAUDE.md(11/10 회의 반영)를 SQL 로 옮긴 것.
 | 파일 | 어디에 | 내용 |
 |---|---|---|
 | `000_local_supabase.sql` | **로컬 Postgres 만** | auth.users·auth.uid()·역할·기본 권한 흉내 (Supabase 엔 이미 있음) |
-| `000_soyun_record.sql` | 로컬 + Supabase | **소윤 실제 테이블**: experience, experience_log, official_activity, block + 권한·트리거·웹훅. 001 보다 먼저 |
-| `000_stub_soyun_tables.sql` | **로컬 Postgres 만** | 소윤 테이블 중 아직 임시인 것 (qa, experience_public). Supabase 에 적용 금지 |
+| `000_soyun_record.sql` | 로컬 + Supabase | **소윤 실제 테이블**: experience, experience_log, official_activity, block, profile, experience_public 뷰 + 권한·트리거·웹훅. 001 보다 먼저 |
+| `000_stub_soyun_tables.sql` | **로컬 Postgres 만** | 소윤 테이블 중 아직 임시인 것 (qa). Supabase 에 적용 금지 |
 | `001_jaehyun_schema.sql` | 로컬 + Supabase | 내 테이블 8개 + experience.embedding + match_public_cards() |
 | `002_jaehyun_rls.sql` | 로컬 + Supabase | RLS, 컬럼 권한, 트리거 |
 | `003_jaehyun_question_1114.sql` | 로컬 + Supabase | 11/14 기획 변경: `question.type` 에 `write_more`, `answer`·`answered_at`, `question_batch.no_new`·`shown_texts`. 여러 번 돌려도 됨. **Supabase 에는 아직 적용 안 함** |

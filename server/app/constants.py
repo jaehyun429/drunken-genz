@@ -58,6 +58,22 @@ RELATED_REASON_MAX = 60          # "왜 관련 있는지" 한 줄 상한. 넘으
 RELATED_LLM_ATTEMPTS = 2         # /related 는 앱이 기다리는 호출이라 질문 생성(3회)보다 덜 재시도. 실패하면 유사도 순으로 내려주고 캐시 안 함
 RELATED_NOTIFY_RECHECK_LIMIT = 200  # 새 공개 카드 하나당 맞춰볼 notify_on_related 질문 수 상한
 
+# 공식 활동 검색 (소윤)
+ACTIVITY_SEARCH_MIN_CHARS = 2    # 띄어쓰기 빼고 센다
+ACTIVITY_SEARCH_LIMIT = 5
+ACTIVITY_RECORD_COUNT_MIN = 5    # 기록 수가 이보다 적으면 null (명세 1.8)
+
+# 프로필 (소윤). db/000_soyun_record.sql profile 의 check 와 같아야 함
+PROFILE_NICKNAME_MIN = 2         # 피그마 PRF-⑨
+PROFILE_NICKNAME_MAX = 12
+PROFILE_BIO_MAX = 100            # 공개용 한 문장. TODO(기획): 길이 (기록 한 줄과 같게 둠)
+PROFILE_SCHOOL_MAX = 40
+PROFILE_MAJOR_MAX = 40
+PROFILE_GRADE_MAX = 10
+
+# 공개 스냅샷 (소윤). 모양을 바꾸면 올림 — 읽는 쪽(cards/public.py, embedding/text.py)이 옛 모양을 구분할 수 있게
+SNAPSHOT_VERSION = 1
+
 # 분석 (CLAUDE.local.md 6장). 아래에서 ANALYSIS_MIN_RECORDS·PATTERN_MIN_EVIDENCE 말고는 명세에 없어 11/15 구현하면서 정한 값
 ANALYSIS_MIN_RECORDS = 3         # 미만이면 잠김. 회차 기록도 셈
 PATTERN_MIN_EVIDENCE = 2         # 패턴 하나의 근거 기록 수 하한. 회차 기록도 기록 하나로 센다
