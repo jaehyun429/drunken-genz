@@ -12,7 +12,6 @@ create table if not exists official_activity (
   id          uuid primary key default gen_random_uuid(),
   name        text not null check (char_length(name) between 2 and 40),
   organizer   text,
-  period      text,                                   -- "2026-1" 등, 회차마다 다른 행
   aliases     text[] not null default '{}' check (cardinality(aliases) <= 3),
   status      text not null default 'pending' check (status in ('pending', 'verified')),
   created_by  uuid references auth.users(id) on delete set null,
@@ -20,11 +19,46 @@ create table if not exists official_activity (
 );
 -- 명세 1.8 의 record_count 는 컬럼으로 두지 않고 검색할 때 experience 를 센다 (값이 어긋날 일이 없게)
 
+-- 11/18 추가 (결정 01 7장). add column if not exists 라 이미 만든 Supabase 에 다시 돌려도 됨
+alter table official_activity
+  add column if not exists genre text check (genre in ('행사 운영', '개발·IT', '디자인·콘텐츠', '음악·공연', '연구·실험',
+                                                        '교육·멘토링', '경영·마케팅', '서비스·응대', '기타')),
+  add column if not exists type text check (type in ('동아리·학회', '팀플·공모전', '대외활동', '학생회·행사', '아르바이트',
+                                                      '봉사·멘토링', '수업·캡스톤'));
+-- 11/20: 기수는 목록에 안 넣는다. 활동마다 한 줄이고, 사용자가 기록할 때 experience.official_period 로 고른다
+-- (처음 만든 테이블엔 기수 칸이 있었음. 다시 돌리면 지움 — 그 칸을 쓰던 인덱스 먼저)
+drop index if exists official_activity_name_period_key;
+alter table official_activity drop column if exists period, drop column if exists series_key;
+
 -- 검색용 글자: 이름 + 별칭, 소문자, 띄어쓰기 없앰. "취업 박람회" 로 "취업박람회" 를 찾게
 create or replace function activity_search_text(name text, aliases text[]) returns text
   language sql immutable as $$
   select lower(regexp_replace(name || ' ' || array_to_string(aliases, ' '), '\s', '', 'g'))
 $$;
+-- 초성 검색용: 한글 음절은 초성으로, 나머지 글자는 그대로. "취업박람회" → "ㅊㅇㅂㄹㅎ" (11/18, 피그마 REC-01-③)
+create or replace function hangul_initials(s text) returns text
+  language plpgsql immutable as $$
+declare
+  cho constant text[] := array['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  out text := '';
+  ch  text;
+  c   int;
+begin
+  foreach ch in array regexp_split_to_array(coalesce(s, ''), '') loop
+    c := ascii(ch);                                   -- UTF8 DB 에선 유니코드 번호
+    if c between 44032 and 55203 then                 -- 가(AC00) ~ 힣(D7A3)
+      out := out || cho[(c - 44032) / 588 + 1];
+    else
+      out := out || ch;
+    end if;
+  end loop;
+  return out;
+end $$;
+
+-- 같은 이름(띄어쓰기·대소문자 무시)은 한 행만. 목록 넣기 스크립트가 이걸로 덮어쓴다 (server/scripts/import_activities.py)
+-- activity_search_text 를 쓰므로 그 함수 뒤에 있어야 함 (빈 DB 에서 순서대로 돌 때)
+create unique index if not exists official_activity_name_key
+  on official_activity (activity_search_text(name, '{}'));
 create index if not exists official_activity_search_idx on official_activity
   using gin (activity_search_text(name, aliases) gin_trgm_ops) where status = 'verified';
 
