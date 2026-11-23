@@ -7,9 +7,28 @@ import uuid
 
 import asyncpg
 
-# 스냅샷 안의 키 이름은 experience 컬럼과 같다고 가정 (embedding/text.py 와 같은 가정).
-# TODO(소윤): published_snapshot 모양이 확정되면 여기와 embedding/text.py 두 곳만 맞춘다.
-# TODO(소윤): 가림 값이 스냅샷에 이미 반영돼 있는지, masked 컬럼에 따로 있는지 확인. 지금은 스냅샷이 가림본이라고 본다.
+# 스냅샷 안의 키 이름은 experience 컬럼과 같고, 글자는 이미 가려진 값이다 (소윤 publish/snapshot.py, 11/20 확정).
+# masked 는 가린 칸의 이름 목록뿐이라 카드에는 쓰지 않는다.
+
+_qa_table = False
+
+
+async def has_qa_table(conn: asyncpg.Connection) -> bool:
+    """qa 는 소윤 테이블인데 아직 로컬 임시 테이블뿐이다 (Supabase 에는 없을 수 있다).
+       없으면 Q&A 개수는 0, 목록은 빈 것으로 준다. 생기면 다음 요청부터 읽는다 (있다고 확인되면 다시 안 묻는다)."""
+    global _qa_table
+    if not _qa_table:
+        _qa_table = await conn.fetchval("select to_regclass('qa') is not null")
+    return _qa_table
+
+
+def qa_count_sql(alias: str = "p") -> str:
+    # TODO(소윤): 접힌(no_answer)·숨긴 Q&A 를 세는지. 지금은 전부 센다
+    return f"(select count(*) from qa where qa.experience_id = {alias}.experience_id)"
+
+
+BLOCKED_SQL = ("exists (select 1 from block b where (b.user_id = $2 and b.blocked_id = p.user_id) "
+               "or (b.user_id = p.user_id and b.blocked_id = $2))")
 
 
 def snapshot_of(row) -> dict | None:
@@ -27,11 +46,10 @@ async def fetch_public_rows(conn: asyncpg.Connection, ids: list[uuid.UUID], view
        qa_count 는 개수만 센다 — Q&A 내용은 읽지 않고, 이 값은 LLM 입력에 넣지 않는다 (POL-07)."""
     if not ids:
         return {}
+    qa_count = qa_count_sql() if await has_qa_table(conn) else "0"
     rows = await conn.fetch(
         "select p.experience_id, p.user_id, p.published_snapshot, p.published_at, p.accept_questions, "
-        "  (select count(*) from qa where qa.experience_id = p.experience_id) as qa_count, "   # TODO(소윤): 접힌(no_answer)·숨긴 Q&A 를 세는지
-        "  exists (select 1 from block b where (b.user_id = $2 and b.blocked_id = p.user_id) "
-        "                                  or (b.user_id = p.user_id and b.blocked_id = $2)) as blocked "
+        f"  {qa_count} as qa_count, {BLOCKED_SQL} as blocked "
         "from experience_public p where p.experience_id = any($1::uuid[])", ids, viewer)
     return {r["experience_id"]: r for r in rows}
 
@@ -54,6 +72,7 @@ def to_public_card(row, viewer: uuid.UUID) -> dict | None:
         "did_chips": list(snap.get("did_chips") or []),
         "one_liner": snap.get("one_liner"),
         "official_activity": official,
+        "official_period": snap.get("official_period") if official else None,   # 기수 1~99. 가렸으면 null (소윤 11/20)
         "published_at": row["published_at"].isoformat() if row["published_at"] else None,
         "accept_questions": bool(row["accept_questions"]),
         "qa_count": int(row["qa_count"]),

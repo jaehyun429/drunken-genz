@@ -10,6 +10,7 @@ API 명세 v0.2 + 레포 CLAUDE.md(11/10 회의 반영)를 SQL 로 옮긴 것.
 | `001_jaehyun_schema.sql` | 로컬 + Supabase | 내 테이블 8개 + experience.embedding + match_public_cards() |
 | `002_jaehyun_rls.sql` | 로컬 + Supabase | RLS, 컬럼 권한, 트리거 |
 | `003_jaehyun_question_1114.sql` | 로컬 + Supabase | 11/14 기획 변경: `question.type` 에 `write_more`, `answer`·`answered_at`, `question_batch.no_new`·`shown_texts`. 여러 번 돌려도 됨. **Supabase 에는 아직 적용 안 함** |
+| `006_jaehyun_cards.sql` | 로컬 + Supabase | 탐색·카드·반응: `reaction` 테이블 (카드당 사람당 하나, 앱 직접 접근 없음). 여러 번 돌려도 됨. **Supabase 에는 아직 적용 안 함** |
 | `apply_local.sh` | 맥 | Docker 로 pgvector Postgres 띄우고 위 순서대로 적용 (포트 54329) |
 
 11/10 회의로 바뀐 것: `question.experience_id` 는 nullable + `on delete set null` (경험 삭제돼도 담은 질문 유지, 안 담은 건 트리거로 삭제), `source_activity_name`·`axis`·`done_experience_id`·`done_dismissed` 추가, `question_batch` 에 `trigger`(save/user)·`failure_reason`(connection/model)·`attempts` 추가.
