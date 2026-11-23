@@ -58,6 +58,12 @@ RELATED_REASON_MAX = 60          # "왜 관련 있는지" 한 줄 상한. 넘으
 RELATED_LLM_ATTEMPTS = 2         # /related 는 앱이 기다리는 호출이라 질문 생성(3회)보다 덜 재시도. 실패하면 유사도 순으로 내려주고 캐시 안 함
 RELATED_NOTIFY_RECHECK_LIMIT = 200  # 새 공개 카드 하나당 맞춰볼 notify_on_related 질문 수 상한
 
+# 탐색·카드·반응 (API 명세 2부 탐색·카드)
+CARDS_PAGE_SIZE = 20             # GET /cards 한 번에. 명세
+CARDS_GENRE_MAX = 20             # genre 쿼리 길이 상한 (분야 이름보다 넉넉히). 목록 밖의 값은 빈 결과
+REACTION_CHIPS = ("나도 그랬어", "나는 반대였어", "다른 상황이었어")   # db/006 의 check 와 같아야 함
+REACTION_NOTE_MAX = 80           # '어떤 점이 달랐나요?'(선택). TODO(기획): 길이가 명세에 없어 보강글과 같게 둠
+
 # 공식 활동 검색 (소윤)
 ACTIVITY_SEARCH_MIN_CHARS = 2    # 띄어쓰기 빼고 센다
 ACTIVITY_SEARCH_LIMIT = 5

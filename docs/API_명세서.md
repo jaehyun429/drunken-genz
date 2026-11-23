@@ -60,6 +60,7 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
   "did_chips": ["..."],
   "one_liner": "...",
   "official_activity": { "name": "...", "verified": false } | null,
+  "official_period": 3 | null,
   "published_at": "...",
   "accept_questions": true,
   "qa_count": 2,
@@ -67,6 +68,7 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 }
 ```
 `activity_name`·`role`·`place` 등은 **가림 적용된 값**. 원본은 절대 안 나감.
+`official_period` 는 기수(1~99). 공식 활동이 없거나 작성자가 가렸으면 null `[v0.3.6]`
 
 ---
 
@@ -338,9 +340,10 @@ supabase.from('profile').update({ grade: '3학년', show_grade: true }).eq('user
 |---|---|
 | experience_id, user_id | uuid, 유니크 |
 | chip | text — 나도 그랬어 / 나는 반대였어 / 다른 상황이었어 |
-| note | text, nullable |
+| note | text, nullable. 1~80자 (`TODO(기획)`: 길이) `[v0.3.6]` |
+| created_at, updated_at | timestamptz `[v0.3.6]` |
 
-작성자에게 안 보임. 추천에만.
+작성자에게 안 보임. 추천에만. **앱은 직접 못 읽고 못 씀** — 쓰기는 `POST /reactions`, 내 반응은 `GET /cards/{id}` 의 `my_reaction`. DB 는 `006_jaehyun_cards.sql` `[v0.3.6]`
 
 ### 1.12 block, report (소윤)
 
@@ -453,6 +456,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 - `experience_public` 뷰에서. 차단·본인 제외 (차단은 FastAPI 쿼리에서 요청자 id로 거름) `[수정 #2]`
 - `role_filter`: `same` / `different` — 내 최근 경험 역할 기준
 - cursor 방식, 20개씩
+- 구현 `[v0.3.6]`: 최신 공개 순(`published_at` 내림차순). `next_cursor` 는 받은 값을 그대로 다음 요청에 넣는 문자열이고 null 이면 끝. `genre` 는 분야 이름 그대로(`개발·IT`), 목록 밖의 값은 빈 결과. `role_filter` 의 "내 최근 경험" = 가장 최근에 만든 기록, 같은 역할 = 띄어쓰기·대소문자만 무시한 글자 일치 (`TODO(기획)`, `/related` 와 같은 기준). 내 기록이 없으면 `same` 은 빈 목록, `different` 는 전부. 잘못된 `role_filter`·`cursor`·20자 넘는 `genre` → 400 `VALIDATION_FAILED` (`details.field`)
 
 #### GET /cards/{experience_id}
 **카드 상세** — 카드 + Q&A + 도움 이유 한 번에.
@@ -466,6 +470,10 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```
 비공개·차단이면 404 `NOT_FOUND`.
 - 위 `qa[]`에 `status` 추가 `[수정 #3]`
+- 구현 `[v0.3.6]`: 내 카드도 열 수 있다 (`card.is_mine = true` → 앱이 '내 카드예요', 기능명세서 EXP-02-⑦). `card.accept_questions = false` 면 앱이 '질문 남기기'를 비활성으로
+- `detail` 에 추가 `[v0.3.6]`: `situation_notes`, `status`, `type`, `period_start`, `period_end`, `place`. 전부 공개 스냅샷의 값(가려진 것). `flow_summary` 는 스냅샷에 아직 없어 늘 null
+- 응답에 `my_reaction_note` 추가 (내가 남긴 한 줄, 없으면 null) `[v0.3.6]`
+- `qa[]`: 나와 차단 관계인 질문자의 것은 빠진다. `qa` 테이블이 아직 임시라 `status` 는 답이 있으면 `answered`, 없으면 `waiting` 만 나오고 `helpful_reasons` 는 빈 목록 — 소윤 Q&A 가 들어오면 맞춘다 `[v0.3.6]`
 
 #### POST /related — 관련 경험 (재현)
 ```json
@@ -487,6 +495,8 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 { "experience_id": "uuid", "chip": "나도 그랬어", "note": "..." | null }
 ```
 같은 카드 다시 보내면 교체. 작성자 알림 없음.
+- 응답 `{ "experience_id": "uuid", "chip": "...", "note": "..." | null }` `[v0.3.6]`
+- `chip` 이 셋 밖이거나 `note` 가 80자 초과 → 400 `VALIDATION_FAILED` (`details.field`). 안 보이는 카드(없음·비공개·차단) → 404. 내 카드 → 400 (`details.field = "experience_id"`, `TODO(기획)`: 내 카드 반응 허용 여부) `[v0.3.6]`
 
 ### Q&A (소윤)
 
@@ -661,6 +671,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 
 ## 변경 이력
 
+- v0.3.6 (11/23) — 탐색·카드·반응 구현 기준 (재현). PublicCard 에 `official_period`. `GET /cards` 정렬·cursor·필터 기준, `GET /cards/{id}` 의 `detail` 칸 추가·`my_reaction_note`·내 카드 열기, `POST /reactions` 응답과 에러. `reaction` 에 시각 칸, 앱 직접 접근 없음. DB 는 `006_jaehyun_cards.sql`
 - 11/20 (소윤) — `profile` 글자 수 확정, `bio`·`show_bio` 추가, 공개 기본값 전부 false, 닉네임에 연락처 금지(1.7). `published_snapshot` 모양·`masked` 형식 확정(1.1). `experience_public` 실제 뷰로 바꾸고 `visibility` 칸 추가
 - 11/20 (소윤) — 기수: 공식 활동 목록에서 빼고(`period`·`series_key`·검색 `periods` 없앰) 기록에 `official_period`(1~99, 선택)로. 공개 카드에도 들어가고 미리보기에서 가리기 제안
 - 11/18 (소윤) — 공식 활동: 검색은 `verified`만 + 초성, 기수 묶음(`periods`)·분야·유형 응답에 추가. `POST /activities` 없앰 (사용자 등록 없음). `official_activity`에 `genre`·`type`·`series_key`

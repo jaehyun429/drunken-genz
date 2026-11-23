@@ -134,7 +134,7 @@ def test_first_open_computes_reranks_caches_and_excludes_mine_blocked_private(en
     first = r.json()["items"][0]
     assert first["reason"] == "이유 2"
     assert set(first["card"]) == {"experience_id", "activity_name", "genre", "role", "did_chips", "one_liner",
-                                  "official_activity", "published_at", "accept_questions", "qa_count", "is_mine"}
+                                  "official_activity", "official_period", "published_at", "accept_questions", "qa_count", "is_mine"}
     assert first["card"]["is_mine"] is False and first["card"]["activity_name"] == f"활동{tok}"
     assert llm.calls == 1
     assert "## 질문\n야간에 해보면?" in llm.users[0] and llm.users[0].count("\n[") == 2, "LLM 엔 걸러진 후보만"

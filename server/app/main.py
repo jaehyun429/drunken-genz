@@ -12,6 +12,7 @@ from .related.router import router as related_router
 from .analysis.router import router as analysis_router
 from .questions import sweep
 from .activities import router as activities_router
+from .cards.router import router as cards_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -34,6 +35,7 @@ app.include_router(embedding_router, prefix="/v1")
 app.include_router(related_router, prefix="/v1")
 app.include_router(activities_router, prefix="/v1")   # 소윤
 app.include_router(analysis_router, prefix="/v1")
+app.include_router(cards_router, prefix="/v1")
 
 
 @app.get("/v1/health")

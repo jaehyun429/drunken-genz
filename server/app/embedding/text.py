@@ -3,8 +3,7 @@
 from __future__ import annotations
 from ..constants import EMBED_TEXT_MAX_CHARS
 
-# published_snapshot 과 experience 컬럼은 같은 이름을 쓴다고 가정.
-# TODO(소윤): 스냅샷 키 이름이 다르면 여기만 고치면 됨 (API 명세 published_snapshot 모양 확정 후)
+# published_snapshot 의 키 이름은 experience 컬럼과 같다 (소윤 publish/snapshot.py, 11/20 확정)
 FIELDS = ("activity_name", "genre", "role", "did_chips", "did_notes", "custom_chips",
           "situation_chips", "emotion_chips", "one_liner", "ai_tags")
 

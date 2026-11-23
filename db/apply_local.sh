@@ -12,7 +12,7 @@ if ! docker ps -a --format '{{.Names}}' | grep -qx $NAME; then
 fi
 docker start $NAME >/dev/null 2>&1 || true
 until docker exec $NAME pg_isready -U postgres -q; do sleep 1; done
-for f in 000_local_supabase.sql 000_soyun_record.sql 000_stub_soyun_tables.sql 001_jaehyun_schema.sql 002_jaehyun_rls.sql 003_jaehyun_question_1114.sql; do
+for f in 000_local_supabase.sql 000_soyun_record.sql 000_stub_soyun_tables.sql 001_jaehyun_schema.sql 002_jaehyun_rls.sql 003_jaehyun_question_1114.sql 006_jaehyun_cards.sql; do
   echo ">> $f"; docker exec -i $NAME psql -U postgres -d genz -v ON_ERROR_STOP=1 -q < "$f"
 done
 echo "DATABASE_URL=postgresql://postgres:postgres@localhost:$PORT/genz"
