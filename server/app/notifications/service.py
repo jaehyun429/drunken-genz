@@ -193,14 +193,15 @@ async def reminders(now: datetime | None = None) -> int:
     """진행 중 활동 리마인드. 사용자가 활동마다 고른 요일·시간(notification_setting.reminders)에 알림 한 건. 만든 수 반환.
        - 사용자가 직접 고른 활동만. 자동으로 켜지 않는다 (기획 "1117 수정" 알림 표)
        - 활동이 끝났거나 지워졌으면 건너뛴다. 리마인드 종류를 껐으면 알림함에도 만들지 않는다
-       - 활동·날짜당 한 번 (묶음 키). 푸시는 dispatch_pending 이 보낸다. 방해 금지 시간이면 아침으로 밀린다
+       - 활동·날짜당 한 번 (묶음 키). 푸시는 dispatch_pending 이 보낸다
+       - 예정 시각이 그 사람의 방해 금지 시간 안이면 알림함에만 쌓고 푸시는 보내지 않는다 (아침에 뒤늦게 보내지 않는다) TODO(기획)
        TODO(기획): 오늘 이미 회차 기록을 쓴 활동은 건너뛴다 (쓴 직후에 "기록을 남겨볼까요"가 오지 않게). 명세에 없다"""
     now = now or _now()
     today = now.astimezone(KST).date()
     made = 0
     async with db.pool().acquire() as conn:
         rows = await conn.fetch(
-            "select s.user_id, e.id as experience_id, r.value as cfg "
+            "select s.user_id, e.id as experience_id, r.value as cfg, s.quiet_start, s.quiet_end "
             "from notification_setting s cross join lateral jsonb_each(s.reminders) r "
             "join experience e on e.id::text = r.key and e.user_id = s.user_id and e.status = 'in_progress' "
             "where jsonb_typeof(s.reminders) = 'object' and coalesce(s.types->>'reminder', 'true') <> 'false' "
@@ -212,7 +213,9 @@ async def reminders(now: datetime | None = None) -> int:
             key = group_key("reminder", r["experience_id"], due)
             if await conn.fetchval("select 1 from notification where user_id = $1 and grouped_key = $2", r["user_id"], key):
                 continue
-            await add(conn, r["user_id"], "reminder", {"experience_id": str(r["experience_id"])}, key, bump=False)
+            nid = await add(conn, r["user_id"], "reminder", {"experience_id": str(r["experience_id"])}, key, bump=False)
+            if in_quiet(due.timetz().replace(tzinfo=None), r["quiet_start"], r["quiet_end"]):
+                await conn.execute("update notification set push_checked_at = $2 where id = $1", nid, now)
             made += 1
     if made:
         log.info("리마인드 알림 %d건", made)

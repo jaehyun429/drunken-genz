@@ -342,6 +342,15 @@ def test_reminder_goes_out_once_on_the_chosen_day_and_time(env):
     assert run(client, service.reminders, MON_2100 + timedelta(days=1)) == 0, "화요일은 고르지 않았다"
     assert run(client, service.reminders, MON_2100 + timedelta(days=3)) == 1, "목요일"
 
+    # 방해 금지 시간에 걸린 리마인드는 알림함에만 쌓이고 아침에도 푸시하지 않는다
+    night = new_user("ExponentPushToken[n]")
+    en = ongoing(night)
+    set_reminder(night, en, [1], at="23:00")
+    assert run(client, service.reminders, MON_2100 + timedelta(hours=2)) == 1
+    dispatch(client, MORNING)
+    [row] = reminder_rows(night)
+    assert row["pushed_at"] is None and all(m["to"] != "ExponentPushToken[n]" for m in fake.sent)
+
 
 def test_reminder_is_skipped_when_it_should_not_fire(env):
     client, _ = env
