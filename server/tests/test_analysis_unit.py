@@ -8,7 +8,7 @@ import app.analysis.generate as gen
 from app.analysis import filters
 from app.analysis.prompt import build_messages, records_hash
 from app.analysis.schemas import Record
-from app.constants import ANALYSIS_PATTERN_MAX, ANALYSIS_TEXT_MAX
+from app.constants import ANALYSIS_AVOID_PROMPT_MAX, ANALYSIS_PATTERN_MAX, ANALYSIS_TEXT_MAX
 from app.llm.client import LLMResult, LLMConnectionError
 
 R = [Record(key="e1", experience_id="a", activity_name="카페 알바", text="활동: 카페 알바 (알바, 진행 중)\n감정: 지침"),
@@ -133,12 +133,18 @@ def test_hash_ignores_keys_and_order_but_not_content():
 
 def test_prompt_has_rules_and_only_what_it_is_given():
     version, system, user = build_messages(R, ["이미 있는 문장이에요."], ["막힌 문장이에요."], 3)
-    assert version == "v1" and "{" not in re.sub(r'\{"patterns".*', "", system)   # 자리표시자가 남지 않음
+    assert version == "v2" and "{" not in re.sub(r'\{"patterns".*', "", system)   # 자리표시자가 남지 않음
     assert "최대 3개" in system and f"{ANALYSIS_TEXT_MAX}자" in system and "기록 **2개 이상**" in system
     assert "[e1] 활동: 카페 알바" in user and "[e1.l1] 카페 알바 회차 기록" in user
-    assert "## 이미 있는 문장\n- 이미 있는 문장이에요." in user and "## 만들지 않을 문장\n- 막힌 문장이에요." in user
+    assert "## 이미 있는 문장\n- [p1] 이미 있는 문장이에요." in user and "## 만들지 않을 문장\n- [n1] 막힌 문장이에요." in user
     _, _, bare = build_messages(R, [], [], ANALYSIS_PATTERN_MAX)
     assert "이미 있는 문장" not in bare and "만들지 않을 문장" not in bare
+    assert "최대 0개" in build_messages(R, ["이미 있는 문장이에요."], [], -1)[1], "자리가 없으면 근거만 다시 센다"
+    # 막는 문장이 많으면 최근 것만 보내지만 번호는 전체 목록에서의 자리 그대로다
+    many = [f"막힌 문장 {i}이에요." for i in range(1, ANALYSIS_AVOID_PROMPT_MAX + 3)]
+    _, _, user = build_messages(R, [], many, 1)
+    assert "[n1] " not in user and "[n2] " not in user and f"- [n3] {many[2]}" in user
+    assert f"- [n{len(many)}] {many[-1]}" in user
 
 
 class Fake:
@@ -157,8 +163,20 @@ def test_find_patterns_filters_and_reports(monkeypatch):
     monkeypatch.setattr(gen, "complete_json", fake)
     out = asyncio.run(gen.find_patterns(R, [], [], 5))
     assert [f.text for f in out.patterns] == ["지쳤다고 고른 기록이 두 개 있어요."]
-    assert out.dropped == [("기획 일에 잘 맞을 거예요.", "앞날 단정")] and out.model == "fake" and out.prompt_version == "v1"
-    assert fake.kw == {"max_attempts": 2}
+    assert out.dropped == [("기획 일에 잘 맞을 거예요.", "앞날 단정")] and out.model == "fake" and out.prompt_version == "v2"
+    assert fake.kw == {"max_attempts": 2} and out.rechecked == {}
+
+
+def test_find_patterns_reads_evidence_for_numbered_sentences(monkeypatch):
+    """남긴 문장(p)과 숨긴 문장(n)의 근거를 다시 받는다. 보낸 번호와 입력에 있는 기록 번호만 남긴다."""
+    fake = Fake({"patterns": [], "existing": [
+        {"id": "p1", "evidence": ["e1", "[e2]", "e9", "e1"]}, {"id": "[n2]", "evidence": ["e1.l1"]},
+        {"id": "p2", "evidence": ["e1"]}, {"id": "n3", "evidence": ["e1"]}, {"id": "n1", "evidence": []},
+        "문자열", {"id": 3, "evidence": ["e1"]}, {"id": "p1", "evidence": ["e1.l1"]}]})
+    monkeypatch.setattr(gen, "complete_json", fake)
+    out = asyncio.run(gen.find_patterns(R, ["남긴 문장이에요."], ["숨긴 하나예요.", "숨긴 둘이에요."], 0))
+    assert out.patterns == [] and out.rechecked == {"p1": ["e1", "e2", "e1.l1"], "n2": ["e1.l1"], "n1": []}
+    assert filters.recheck([], KEYS, {"p1"}) == {}
 
 
 def test_zero_patterns_is_a_valid_result(monkeypatch):

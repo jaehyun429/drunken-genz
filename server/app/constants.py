@@ -77,8 +77,12 @@ SNAPSHOT_VERSION = 1
 # 분석 (CLAUDE.local.md 6장). 아래에서 ANALYSIS_MIN_RECORDS·PATTERN_MIN_EVIDENCE 말고는 명세에 없어 11/15 구현하면서 정한 값
 ANALYSIS_MIN_RECORDS = 3         # 미만이면 잠김. 회차 기록도 셈
 PATTERN_MIN_EVIDENCE = 2         # 패턴 하나의 근거 기록 수 하한. 회차 기록도 기록 하나로 센다
-ANALYSIS_PROMPT = "analysis_v1"  # app/llm/prompts/<이름>.md
-ANALYSIS_PATTERN_MAX = 5         # 화면에 보이는 패턴 수 상한 (남겨둔 것 + 새로 만든 것). TODO(기획): 화면에 몇 개까지 보이는지
+ANALYSIS_PROMPT = "analysis_v2"  # app/llm/prompts/<이름>.md. v2 (11/22): 남긴 문장·숨긴 문장의 근거를 다시 센다 (기능명세서 15장)
+ANALYSIS_PATTERN_MAX = 5         # 내려주는 패턴 수 상한. 근거 수 많은 순 (기능명세서 15장: 처음 3개, 더보기로 5개. 3개에서 자르는 것은 앱)
+ANALYSIS_RESURFACE_MIN_RECORDS = 5   # "아니에요" 패턴을 다시 보여줄 수 있는 전체 기록 수 (15장 "기록 5개(처음 3 + 추가 2) 이후").
+                                     # TODO(기획): 전체 기록 수로 읽었다. "아니에요" 뒤로 2개 더인지 확인
+ANALYSIS_RESURFACE_NEW_EVIDENCE = 1  # "아니에요" 뒤에 쓴 기록 가운데 같은 내용이 적힌 기록이 이만큼 있어야 다시 보여준다 (한 번만).
+                                     # TODO(기획): 15장은 "새 기록에서 같은 선택이 더 반복됐을 때"라고만 한다
 ANALYSIS_TEXT_MAX = 80           # 패턴 한 문장 길이 상한. 넘으면 버림
 ANALYSIS_EDIT_MAX = 60           # "수정할게요"로 고친 문장 길이 상한 (기능명세서 ANA-01b-①: 최대 60자)
 # 패턴 끝맺음. 프롬프트의 말투와 짝이라 같이 바꾼다. 질문(v4)과 같이 존댓말, 평서문 "~요."

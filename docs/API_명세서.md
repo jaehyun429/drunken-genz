@@ -1,8 +1,8 @@
-# API 명세서 v0.3.2
+# API 명세서 v0.3.3
 
-v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영 → v0.3.1 (11/14) · 재현 섹션(질문·알림·백그라운드) 구현 기준으로 갱신 → v0.3.2 (11/17) · 질문 생성 11/14 기획 변경 반영 (4개 고정, 더 적어보기, 재생성 24시간)
+v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경계 정리" 반영 → v0.3 (11/14) · 소윤 검토 9건 반영 → v0.3.1 (11/14) · 재현 섹션(질문·알림·백그라운드) 구현 기준으로 갱신 → v0.3.2 (11/17) · 질문 생성 11/14 기획 변경 반영 (4개 고정, 더 적어보기, 재생성 24시간) → v0.3.3 (11/22) · 분석 응답 처리 11/16 기획 변경 반영 (근거 수 순, 확인 중, 아니에요 한 번 다시)
 
-> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목, `[v0.3.1]`은 재현 PR 에서 바뀐 곳, `[v0.3.2]`는 11/14 기획 변경(PRD 7.2·7.2.1, 기능명세서 14.1)을 반영한 곳. 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
+> **v0.2 대비 바뀐 곳 표시** — 줄 끝의 `[수정 #N]`은 PR #1 설명 표의 N번 항목, `[v0.3.1]`은 재현 PR 에서 바뀐 곳, `[v0.3.2]`는 11/14 기획 변경(PRD 7.2·7.2.1, 기능명세서 14.1)을 반영한 곳, `[v0.3.3]`은 11/16 기획 변경(기능명세서 15장)을 반영한 곳. 지운 내용은 ~~취소선~~으로 남김. 리뷰가 끝나면 표시는 지움
 
 구조가 두 갈래라 명세도 두 부분입니다.
 
@@ -220,7 +220,8 @@ RLS: 본인 select 만. 쓰기는 서버만.
 
 - `related_cache(question_id, filter) → items jsonb, computed_at` — 관련 경험 결과 캐시. **앱 접근 없음** (서버가 PublicCard 로 바꿔 내려줌). 질문이 지워지면 cascade
 - `analysis_run(user_id PK) → record_count, criteria, input_hash, last_updated` — 사용자당 1행. 앱 읽기만
-- `analysis_pattern(id, user_id, text, evidence jsonb, feedback, edited_text, hidden)` — 패턴 + 피드백. `feedback='no'` 면 `hidden`, 다시 안 만듦. 앱 읽기만. 피드백은 `/analysis/feedback` 으로
+- `analysis_pattern(id, user_id, text, evidence jsonb, feedback, edited_text, hidden, feedback_at, feedback_evidence_count, reask, reask_new_count, resurfaced, excluded)` — 패턴 + 피드백. `feedback='no'` 면 `hidden`. 앱 읽기만. 피드백은 `/analysis/feedback` 으로. 보관소 '내 분석'은 앱이 이 테이블에서 `feedback in ('yes','edit') and not hidden` 을 직접 읽는다 (서버 API 없음) `[v0.3.3]`
+  - `feedback_at`·`feedback_evidence_count`: 마지막으로 응답한 시각과 그때의 근거 수. `reask`: `more_evidence` | `repeated` | null (다시 묻는 카드). `reask_new_count`: `repeated` 일 때 새 기록 수. `resurfaced`: 아니에요 뒤에 한 번 다시 보여줬음. `excluded`: 다시 보여준 뒤 또 아니에요 (영구 제외). DB 는 `004_jaehyun_analysis_1116.sql` `[v0.3.3]`
 
 ### 1.4 notification — 알림 (재현) `[v0.3.1]`
 
@@ -561,10 +562,10 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 ```json
 {
   "locked": false, "record_count": 5,
-  "patterns": [ { "id": "uuid", "text": "...", "evidence": [ { "experience_id": "uuid", "activity_name": "...", "log_id": null, "log_date": null } ], "feedback": null, "edited_text": null } ],
+  "patterns": [ { "id": "uuid", "text": "...", "evidence": [ { "experience_id": "uuid", "activity_name": "...", "log_id": null, "log_date": null } ], "feedback": null, "edited_text": null, "reask": null, "reask_new_count": null } ],
   "criteria": { "private": null, "public": null },
   "saved_questions": [ ... ],
-  "last_updated": "...", "has_new_records": false
+  "last_updated": "...", "has_new_records": false, "reask_count": 0
 }
 ```
 기록 3개 미만 → `locked: true`. qa·reaction 안 읽음.
@@ -575,6 +576,16 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 - `edited_text`: 사용자가 고친 문장 (추가 필드). 화면에는 이걸 보여주고, `text` 는 AI 가 낸 원래 문장 그대로
 - `patterns` 는 0개일 수 있음 (반복되는 게 없으면 억지로 안 만듦)
 - 처음 부르면 바로 계산. 그 뒤로는 저장된 결과를 주고, 기록이 바뀌었으면 `has_new_records: true`. 다시 계산은 `force: true` 이고 기록이 바뀌었을 때만
+
+`[v0.3.3]` 기능명세서 15장 (11/16 분석 응답 처리)
+- `patterns` 는 **근거 수 많은 순으로 최대 5개**. 근거 수가 같으면 먼저 만든 것이 앞. 화면은 처음 3개, 더보기로 5개 — 3개에서 자르는 것은 앱
+- `feedback: "later"` 인 패턴이 '확인 중'. 다시 분석해도 문장이 남고, 다른 패턴 뒤로 밀려 5개 한도에 자리가 남을 때만 내려감 (안 내려가도 상태는 남음)
+- `reask` (추가 필드): 다시 묻는 카드면 값이 있고 응답 버튼 4개를 다시 띄움. 응답을 보내면 `null` 로 돌아감
+  - `"more_evidence"`: 확인 중이던 패턴의 근거가 늘었음 → '기록이 늘었어요. 다시 확인해볼까요?'. 이때는 다른 패턴과 같이 근거 수 순위에 들어옴
+  - `"repeated"`: 아니에요였던 패턴이 새 기록에서 또 보임 → '새 기록 N개에서도 이런 선택이 보여요', N = `reask_new_count` (추가 필드). 이때 `feedback` 은 `null`
+- `reask_count` (추가 필드): 내려준 패턴 가운데 `reask` 가 있는 수 → 홈 분석 요약 '다시 확인할 패턴이 N개 있어요'. `locked` 면 0
+- 다시 분석(`force`)은 하나뿐이고 확인 중·숨긴 패턴까지 전체를 다시 봄. 남긴 패턴의 근거도 이때 다시 세서 새 기록이 붙음. 패턴별 업데이트는 없음
+- 아니에요 패턴을 다시 보여주는 조건: 전체 기록 5개 이상 + 아니에요 뒤에 쓴 기록 1개 이상에 같은 내용이 있음. 패턴마다 한 번만. `TODO(기획)`: "기록 5개 이후"를 전체 기록 수로, "더 반복"을 새 기록 1개 이상으로 읽었음. "근거가 늘었다"는 다시 분석할 때 새 기록이 그 패턴의 근거로 붙은 것으로 읽었음
 - `criteria`: **뜻이 정해지지 않아 지금은 둘 다 `null`** (지은 확인 필요). 정해지면 문자열
 - `saved_questions`: 담은 질문. `question` 테이블 컬럼 그대로 (`id, experience_id, source_activity_name, type, axis, text, source, memo, is_done, done_dismissed, linked_experience_id, related_new, created_at`)
 - LLM 실패 → 503 `AI_UNAVAILABLE`, `details.reason` = `connection` | `model`. 저장된 결과는 그대로
@@ -589,7 +600,8 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 `[재현 11/15 구현하면서 채움]`
 - `edit` 는 `edited_text` 1~60자 필수 (기능명세서 ANA-01b-①), 없으면 400 `VALIDATION_FAILED`. 다른 값일 땐 `edited_text` 를 무시하고 전에 고친 문장은 남김
 - `no` → `hidden: true`, 목록에서 바로 빠지고 다시 분석해도 닮은 문장을 안 만듦. 다른 값으로 다시 보내면 풀림
-- `yes`·`edit` 패턴은 다시 분석해도 남고, 피드백 없음·`later` 는 새 결과로 바뀜
+- ~~`yes`·`edit` 패턴은 다시 분석해도 남고, 피드백 없음·`later` 는 새 결과로 바뀜~~ → `yes`·`edit`·`later` 패턴은 다시 분석해도 남고, 피드백 없는 패턴만 새 결과로 바뀜 (**동작 변경**: `later` 가 남음) `[v0.3.3]`
+- 다시 묻는 카드(`reask`)에 응답하면 `reask`·`reask_new_count` 가 `null` 이 됨. `reask: "repeated"` 였던 패턴에 또 `no` 를 보내면 영구 제외 (다시 안 보여줌). 응답의 `pattern` 에도 `reask`·`reask_new_count` 가 들어감 `[v0.3.3]`
 - 내 패턴이 아니거나 없으면 404 `NOT_FOUND`
 
 ### 프로필 (소윤)
@@ -643,7 +655,8 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 | ~~`/notifications` 앱 직접 vs 서버 경유~~ → 앱 직접 | 재현 `[v0.3.1]` |
 | 기록을 고치면 질문 자동 재생성할지, 재생성 "하루 1회"가 "기록할 때마다 1회"로 바뀔지 | 지은 `[v0.3.1]` |
 | 알림 종류별 기본값, 진행 중 활동 만들 때 리마인드 자동 on (일 21:00?) | 지은 `[v0.3.1]` |
-| 분석 "아니에요"의 범위(비슷한 패턴도 막는지), "나중에"는 언제 다시 | 지은 `[v0.3.1]` |
+| ~~분석 "아니에요"의 범위(비슷한 패턴도 막는지), "나중에"는 언제 다시~~ → 기능명세서 15장으로 정해짐. 남은 것: "기록 5개 이후"·"더 반복"·"근거가 늘었다"의 정확한 기준 (POST /analysis 의 `TODO(기획)`) | 지은 `[v0.3.3]` |
+| 선택 기준 문장(`criteria`): 나만 보기/공개용 문장, 아니에요 → 새 문장 하루 3회. 공개용 문장이 어디에 공개되는지 (이슈 #16, 다음 PR) | 지은·재현 `[v0.3.3]` |
 | ~~초성 검색 — pg_trgm으로 안 되면~~ → 초성 함수로 넣음 (11/18) | 소윤 |
 | 개수 제한을 DB 트리거로도 걸지 (앱 체크 + 서버 체크 외에) | 소윤 |
 | `follow_up` 답변 저장 위치 | 지은 |
@@ -661,6 +674,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 
 ## 변경 이력
 
+- v0.3.3 (11/22) — 분석 응답 처리 11/16 기획 변경 반영 (기능명세서 15장, 이슈 #16). `POST /analysis` 패턴을 근거 수 순으로, `reask`·`reask_new_count`·`reask_count` 추가. `later` 는 다시 분석해도 남음('확인 중'), `no` 는 조건이 맞으면 한 번 다시 보여주고 또 `no` 면 영구 제외. `analysis_pattern` 컬럼 6개 추가. DB 는 `004_jaehyun_analysis_1116.sql`. `criteria`(선택 기준 문장)는 다음 PR
 - 11/20 (소윤) — `profile` 글자 수 확정, `bio`·`show_bio` 추가, 공개 기본값 전부 false, 닉네임에 연락처 금지(1.7). `published_snapshot` 모양·`masked` 형식 확정(1.1). `experience_public` 실제 뷰로 바꾸고 `visibility` 칸 추가
 - 11/20 (소윤) — 기수: 공식 활동 목록에서 빼고(`period`·`series_key`·검색 `periods` 없앰) 기록에 `official_period`(1~99, 선택)로. 공개 카드에도 들어가고 미리보기에서 가리기 제안
 - 11/18 (소윤) — 공식 활동: 검색은 `verified`만 + 초성, 기수 묶음(`periods`)·분야·유형 응답에 추가. `POST /activities` 없앰 (사용자 등록 없음). `official_activity`에 `genre`·`type`·`series_key`

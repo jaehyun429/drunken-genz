@@ -74,16 +74,20 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 - 11/14 실측(Haiku 재정렬): 질문 6개에 3~5장씩, 첫 조회 4~6초(모델 로드 제외), 다시 열기 1~4ms
 
 ## 분석 (5단계)
-- `POST /v1/analysis` `{force}` → `{locked, record_count, patterns, criteria, saved_questions, last_updated, has_new_records}`. 기록(경험 + 회차 기록)이 3개 미만이면 `locked: true` 이고 LLM 을 안 부른다
+- `POST /v1/analysis` `{force}` → `{locked, record_count, patterns, criteria, saved_questions, last_updated, has_new_records, reask_count}`. 기록(경험 + 회차 기록)이 3개 미만이면 `locked: true` 이고 LLM 을 안 부른다
 - 기록마다 번호를 붙여 보낸다 (`[e1]` 경험, `[e1.l1]` 그 경험의 회차 기록). 모델은 문장과 근거 번호를 돌려주고, 서버가 번호를 `{experience_id, activity_name, log_id, log_date}` 로 바꿔 저장한다. 근거가 서로 다른 기록 2개 미만이면 버린다
 - 저장된 결과: 처음 한 번은 바로 계산한다. 그 뒤로는 저장된 것을 주고, 기록이 바뀌었으면 `has_new_records: true` 만 알린다. `force: true` 이고 기록이 바뀌었을 때만 다시 계산한다 (기록이 그대로면 `force` 여도 LLM 을 안 부른다)
-- 다시 계산할 때: "맞아요"·"수정할게요"를 받은 패턴은 남기고, 피드백이 없거나 "아직 모르겠어요"인 패턴은 지우고 새로 받는다. "아니에요"는 숨긴 채 남겨 두고 닮은 문장을 막는 데 쓴다. 사용자가 고친 문장(`edited_text`)은 모델에 보내지 않는다
+- 다시 계산할 때 (기능명세서 15장, 11/22 에 맞춤): "맞아요"·"수정할게요"·"아직 모르겠어요"를 받은 패턴은 남기고, 피드백이 없는 패턴은 지우고 새로 받는다. "아니에요"는 숨긴 채 남겨 두고 닮은 문장을 막는 데 쓴다. 사용자가 고친 문장(`edited_text`)은 모델에 보내지 않는다
+- 근거 다시 세기 (프롬프트 v2): 남긴 문장은 `[p1]`, 숨긴 문장은 `[n1]` 번호를 붙여 보내고, 모델이 문장마다 그 내용이 적힌 기록 번호를 `existing` 으로 돌려준다. 있던 근거는 빼지 않고 새 기록만 더한다
+- 순서: 근거 수 많은 순으로 최대 5개. "아직 모르겠어요"(확인 중)는 뒤로 밀리고 새 패턴의 자리를 차지하지 않는다. 응답할 때보다 근거가 늘면 `reask: more_evidence` 가 붙고 순위에 들어온다
+- "아니에요" 다시 보여주기: 전체 기록 5개 이상이고 "아니에요" 뒤에 쓴 기록에 같은 내용이 있으면 한 번만 `reask: repeated` 로 다시 보여준다. 또 "아니에요"면 영구 제외 (`constants.ANALYSIS_RESURFACE_*`)
 - 걸러내기(`app/analysis/filters.py`): 길이 80자, 끝이 "요.", 평가·사람 규정·조언·앞날 단정·남과 비교·연락처·"-시-" 높임, 근거 부족, 이미 있는 문장이나 숨긴 문장과 닮음. 닮음은 틀 낱말("기록이 두 개 있어요")을 뺀 문자 2-gram 이라 낱말이 거의 같은 것만 잡는다
 - `POST /v1/analysis/feedback` `{pattern_id, feedback, edited_text}` → `{pattern}`. `edit` 는 고친 문장(1~60자)이 있어야 하고, `no` 는 숨긴다. 남의 패턴은 404
 - LLM 이 실패하면 503 `AI_UNAVAILABLE` (`details.reason` = `connection` | `model`) 이고 아무것도 저장하지 않는다
 - 읽는 테이블은 본인의 `experience`, `experience_log`, `question`(담은 것), `analysis_*` 뿐. `qa`·`reaction` 은 안 읽는다 (POL-07, `tests/test_analysis_unit.py` 가 SQL 을 검사)
 - DB 없이 돌려보기: `python -m scripts.demo_analysis [f01 ...] [--feedback]` (가짜 경험 6개를 한 사람의 기록으로 가정. `--feedback` 은 첫 패턴에 "아니에요", 둘째에 "맞아요"를 누른 것처럼 꾸며 다시 분석)
 - 11/15 실측(Haiku, 가짜 경험): 5번 돌려 패턴 18개, 필터가 버린 것 0개, 전부 "요."로 끝남. 기록 8개에 7~9초. 숨긴 문장과 남긴 문장은 다시 나오지 않았다 (1번 확인). "이유를 모르겠다고 적은 기록" 근거에 뜻이 조금 다른 기록이 하나 섞인 적이 있다 (2번). **Qwen 으로는 아직 안 돌렸다**
+- 11/22 실측(Haiku, 프롬프트 v2, `--feedback` 1번): 기록 8개에 9.6초·9.8초, 버린 것 0개. 남긴 문장 `[p1]` 에는 근거 4개(처음 3개 + 회차 기록 1개), 숨긴 문장 `[n1]` 에는 처음과 같은 3개를 돌려줬다. 근거를 다시 세는 부분은 이 한 번만 확인했다
 
 ## 폴더
 ```
@@ -98,7 +102,7 @@ app/db.py            asyncpg 풀      app/questions/generate.py   호출 → 걸
                                      app/questions/router.py     엔드포인트
 app/cards/public.py  PublicCard 조립   app/related/rerank.py       LLM 재정렬·이유 걸러내기
 app/embedding/       임베딩·웹훅·sweep  app/related/service.py      후보·캐시·새 카드 재계산
-app/analysis/        분석 (prompt·filters·generate·service·router)   app/llm/prompts/analysis_v1.md  분석 프롬프트
+app/analysis/        분석 (prompt·filters·generate·service·router)   app/llm/prompts/analysis_v2.md  분석 프롬프트
 ```
 
 ## Supabase 에 붙일 때 (소윤과 함께)

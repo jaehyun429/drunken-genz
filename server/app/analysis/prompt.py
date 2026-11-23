@@ -76,14 +76,16 @@ def prompt_version() -> str:
 
 
 def build_messages(records: list[Record], existing: list[str], blocked: list[str], need: int) -> tuple[str, str, str]:
-    """(prompt_version, system, user). need 는 이번에 새로 낼 수 있는 최대 개수."""
+    """(prompt_version, system, user). need 는 이번에 새로 낼 수 있는 최대 개수 (0 이면 근거만 다시 센다).
+       문장 번호는 existing 이 p1…, blocked 가 n1… 이고 받은 목록의 순서 그대로다 (filters.recheck 가 같은 번호로 읽는다)."""
     version, system = load_prompt(ANALYSIS_PROMPT)
-    system = (system.replace("{max}", str(min(need, ANALYSIS_PATTERN_MAX)))
+    system = (system.replace("{max}", str(max(0, min(need, ANALYSIS_PATTERN_MAX))))
               .replace("{text_max}", str(ANALYSIS_TEXT_MAX)).replace("{min_evidence}", str(PATTERN_MIN_EVIDENCE)))
     body = "\n\n".join(f"[{r.key}] {r.text}" for r in records)
     user = f"## 기록 ({len(records)}개)\n{body}"
     if existing:
-        user += "\n\n## 이미 있는 문장\n" + "\n".join(f"- {_norm(t)}" for t in existing)
+        user += "\n\n## 이미 있는 문장\n" + "\n".join(f"- [p{i}] {_norm(t)}" for i, t in enumerate(existing, 1))
     if blocked:
-        user += "\n\n## 만들지 않을 문장\n" + "\n".join(f"- {_norm(t)}" for t in blocked[-ANALYSIS_AVOID_PROMPT_MAX:])
+        numbered = list(enumerate(blocked, 1))[-ANALYSIS_AVOID_PROMPT_MAX:]
+        user += "\n\n## 만들지 않을 문장\n" + "\n".join(f"- [n{i}] {_norm(t)}" for i, t in numbered)
     return version, system, user
