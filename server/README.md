@@ -30,7 +30,8 @@ curl localhost:8080/v1/health
 
 생성 한 번 안에서 하는 일 (`app/questions/generate.py`):
 - 11/14 기획 변경(PRD 7.2, 기능명세서 14.1)부터 화면에 나가는 건 **4개 고정**이다. 모델은 후보(더 적어보기 0~2, 해볼 것 2~3, 상상해보기 2~3)를 내고 코드가 4개를 고른다 (`generate.compose`): 더 적어보기를 앞에 최대 2개, 나머지 자리는 해볼 것과 상상해보기를 번갈아. 4자리면 2+2, 3자리면 해볼 것 2 + 상상해보기 1, 2자리면 1+1
-- 질문은 40자 이내, 문장 틀은 프롬프트 v5 의 "문장 틀" 절. 틀은 프롬프트로만 맞추고 필터는 길이와 끝("요?")만 본다
+- 프롬프트 v6 (11/23): v5 에 "이 기록에서만 나올 질문으로" 절을 더했다. 바꾸는 것을 구체적인 값으로 말하기, 기록에 적힌 어려움을 키우는 해볼 것 금지, 상황 칩을 뒤집기만 한 가정 금지. Qwen 이 낸 질문이 어느 기록에나 붙는 꼴이어서 (재현님 11/23). Haiku 로 7건 확인, Qwen 은 확인 전
+- 질문은 40자 이내, 문장 틀은 프롬프트 v6 의 "문장 틀" 절. 틀은 프롬프트로만 맞추고 필터는 길이와 끝("요?")만 본다
 - 걸러낸 뒤 4개가 안 되거나 해볼 것·상상해보기 가운데 한 종류가 없으면 **한 번만** 다시 묻는다. 통과한 질문과 버린 질문·이유를 알려주고 모자란 종류와 개수만 받는다 (`question_reask_v2.md`). 재생성 횟수에 세지 않는다. 다시 물어도 모자라면 있는 것만 저장한다. 0개면 `model` 실패
 - 다시 받은 질문이 버린 질문과 닮았으면(겹치는 질문과 같은 기준 0.5) 받지 않는다 (`filters.split_repeats`). Qwen 은 버린 질문을 말만 바꿔 다시 낸다. 형식 때문에 버린 것(출처 없음, 축 불일치, 길이)은 고쳐서 다시 내도 받는다
 - 질문의 `source` 를 기록 글자와 맞춘다 (`source.py`). 모델이 붙인 항목 이름("한 줄: …", "역할 칩 '…'")을 떼고, 틀리게 옮긴 칩은 가장 닮은 칩으로 바꾼다. 기록에서 못 찾으면 그대로 둔다
@@ -88,7 +89,7 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 ## 폴더
 ```
 app/config.py        환경변수        app/llm/client.py           LLM 호출·재시도·실패 분류
-app/constants.py     숫자 전부       app/llm/prompts/question_v5.md  프롬프트 (버전 붙임. 쓰는 버전은 constants 의 QUESTION_PROMPT)
+app/constants.py     숫자 전부       app/llm/prompts/question_v6.md  프롬프트 (버전 붙임. 쓰는 버전은 constants 의 QUESTION_PROMPT)
 app/errors.py        에러 형식       app/questions/prompt.py     경험 → 입력 문단·해시
 app/auth.py          JWT·웹훅 비밀   app/questions/filters.py    응답 후 걸러내기
 app/db.py            asyncpg 풀      app/questions/generate.py   호출 → 걸러내기 → 다시 묻기 → 출처 맞추기
