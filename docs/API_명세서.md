@@ -230,7 +230,7 @@ RLS: 본인 select 만. 쓰기는 서버만.
 - 방해 금지에 생긴 알림이 2개 이상이면 방해 금지가 끝난 뒤 하나로, 1개면 그 알림 그대로 보냄
 - `notification_setting.types` 에서 끈 종류: **푸시만 안 보내고 알림함에는 쌓임** `TODO(기획)`. `push_enabled: false` 도 같음
 - `related_found` `[v0.3.5]`: 매일 한국 시간 9시대에 서버가 사용자당 한 행을 만든다. `count` = 새로 붙은 경험 수 (경험 하나가 질문 여러 개에 맞아도 한 번, 지금 볼 수 없는 카드와 내 경험은 안 셈), `payload.question_ids` = 새 경험이 붙은 질문들. 9시 뒤에 붙은 것은 다음 날 아침. 한 번 알린 질문은 사용자가 안 열어 봐도 다시 알리지 않는다 (`question.related_notified_at`, 서버만 씀)
-- `reminder` `[v0.3.5]`: `notification_setting.reminders` 에 사용자가 넣은 활동만, 고른 요일·시간(한국 시간)에 한 행. `payload` 는 `{ "experience_id" }`. 진행 중(`in_progress`)인 활동만, 활동·날짜당 한 번. `types.reminder` 가 `false` 면 알림함에도 안 만든다. 그 날짜의 회차 기록이 이미 있으면 건너뜀 `TODO(기획)`. 예정 시각을 60분 넘기면 그날은 건너뜀. 방해 금지 시간에 걸리면 푸시는 아침으로 밀림
+- `reminder` `[v0.3.5]`: `notification_setting.reminders` 에 사용자가 넣은 활동만, 고른 요일·시간(한국 시간)에 한 행. `payload` 는 `{ "experience_id" }`. 진행 중(`in_progress`)인 활동만, 활동·날짜당 한 번. `types.reminder` 가 `false` 면 알림함에도 안 만든다. 그 날짜의 회차 기록이 이미 있으면 건너뜀 `TODO(기획)`. 예정 시각을 60분 넘기면 그날은 건너뜀. 예정 시각이 방해 금지 시간 안이면 알림함에만 쌓고 푸시는 안 보냄 `TODO(기획)`
 - Q&A 트리거 `notify_on_qa`: 내 카드에 내가 남긴 질문, 서로 차단한 사이는 알림 없음. `qa` 가 실제 테이블이 되면 붙임 (지금은 함수만 있음)
 
 RLS: 본인 select, `read`만 update (컬럼 권한). 생성은 서버(트리거 + FastAPI). 30일 지난 건 cron 삭제. 앱은 모르는 `type`이 오면 일반 알림으로 표시. 알림이 가리키는 글이 없어져도 알림은 남김 → 앱이 "지금은 볼 수 없는 글이에요". 차단한 사람의 활동으로는 알림을 만들지 않음. 익명이라 문구에 닉네임 안 넣음.
