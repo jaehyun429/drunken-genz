@@ -90,6 +90,15 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 - 11/22 실측(Haiku, 프롬프트 v2, `--feedback` 1번): 기록 8개에 9.6초·9.8초, 버린 것 0개. 남긴 문장 `[p1]` 에는 근거 4개(처음 3개 + 회차 기록 1개), 숨긴 문장 `[n1]` 에는 처음과 같은 3개를 돌려줬다. 근거를 다시 세는 부분은 이 한 번만 확인했다
 
 
+## 기능 확인용 페이지 (`/demo`)
+기획·디자인이 서버 기능을 직접 눌러 보는 페이지다. **실제 앱이 아니고 디자인도 아니다** (색·아이콘 없음). `app/demo/` 에 있고 `DEMO_PASSWORD` 를 넣은 서버에서만 열린다. 넣지 않으면 `/demo`, `/v1/demo/*` 는 전부 404 이고 `demo:` 토큰도 안 통한다. 실제 서비스 서버에는 넣지 않는다.
+- 볼 수 있는 것: 기록 쓰기(7단계를 줄인 칸) → 질문 4개, 더 적어보기 답, 담기, 다시 만들기 → 분석(패턴, 응답 버튼 4개, 다시 분석, 다시 묻는 카드, 더보기) → 알림함(묶임)
+- 페이지는 AI 가 도는 부분은 실제 엔드포인트(`/v1/questions/*`, `/v1/analysis*`)를 그대로 부른다. 실제 앱이 Supabase 에서 직접 하는 부분(기록 저장, 목록 읽기, 담기)만 `/v1/demo/*` 가 대신한다
+- 로그인: 비밀번호 하나 + 확인용 계정 고르기. 계정은 `DEMO_ACCOUNTS="지은:<uuid>,명금:<uuid>"` 로 준다. uuid 는 `auth.users` 에 있는 사용자여야 한다 (Supabase 대시보드 Authentication 에서 만든 사용자의 UID). 계정마다 기록이 따로 쌓인다
+- 맥에서: `DEMO_PASSWORD=... DEMO_ACCOUNTS=... uvicorn app.main:app --port 8765` 뒤 `http://localhost:8765/demo`
+- 페이지를 다른 곳(Vercel 등)에 올릴 때: `app/demo/page.html` 한 장만 올리고 주소 뒤에 `?api=https://서버주소` 를 붙인다. `DEMO_PASSWORD` 가 있는 서버는 다른 주소에서 오는 요청(CORS)을 받는다
+- GPU 서버에서 Qwen 으로 열 때: Supabase 에 `db/005` 까지 적용 → 컨테이너의 `server/.env` 에 `DATABASE_URL`(Supabase 의 Session pooler 또는 Direct 주소. Transaction pooler 6543 은 asyncpg 와 안 맞는다), `LLM_BASE_URL=http://localhost:8001/v1`, `LLM_MODEL=local`, `DEMO_PASSWORD`, `DEMO_ACCOUNTS` → `uvicorn app.main:app --host 0.0.0.0 --port <포트>` → 그 포트를 터널로 밖에 연다. 링크는 `터널주소/demo`
+
 ## 알림 (6단계, 진행 중 — 이슈 #18)
 - 앱은 알림함을 `notification` 테이블에서 직접 읽는다. 서버는 행을 만들고 푸시를 보낸다. 서버 엔드포인트는 없다
 - 만들기: `app/notifications/service.py` `add()` → DB 함수 `notification_add`. 묶음 키(`종류:경험id:한국날짜`)가 같으면 행을 새로 만들지 않고 `count` 만 올린다. Q&A 알림은 DB 트리거 함수 `notify_on_qa` 가 같은 함수를 부른다 (트리거는 `qa` 가 실제 테이블이 되면 붙인다)

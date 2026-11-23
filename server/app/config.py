@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     expo_push_url: str = "https://exp.host/--/api/v2/push/send"
     expo_access_token: str = ""
 
+    # 기능 확인용 페이지 (app/demo). 비밀번호를 넣은 서버에서만 /demo 가 열린다. 실제 서비스 서버에는 넣지 않는다
+    demo_password: str = ""
+    demo_accounts: str = ""         # "지은:<auth.users 의 uuid>,명금:<uuid>" — Supabase 대시보드에서 만든 확인용 사용자들
+
 
 @lru_cache
 def settings() -> Settings:

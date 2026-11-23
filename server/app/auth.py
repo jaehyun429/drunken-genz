@@ -5,10 +5,12 @@
   11/16: 새 프로젝트의 Current 서명 키가 ECC(P-256) 라서 앱 토큰은 이쪽으로 온다
 - HS256: 예전 방식. SUPABASE_JWT_SECRET 을 넣어 둔 서버만 받는다
 키를 돌려도(HS256 ↔ ECC) 서버를 고치지 않게 둘 다 둔다."""
+import hmac
 import logging
 import threading
 import time
 import uuid
+from urllib.parse import unquote
 
 import httpx
 import jwt
@@ -133,6 +135,19 @@ def _decode(token: str) -> dict:
     raise AppError("UNAUTHENTICATED", "지원하지 않는 서명 방식")
 
 
+def demo_accounts() -> dict[str, uuid.UUID]:
+    """DEMO_ACCOUNTS="이름:uuid,이름:uuid" → {이름: uuid}. 모양이 틀린 항목은 버린다."""
+    out: dict[str, uuid.UUID] = {}
+    for item in settings().demo_accounts.split(","):
+        name, _, raw = item.strip().rpartition(":")
+        try:
+            if name.strip():
+                out[name.strip()] = uuid.UUID(raw.strip())
+        except ValueError:
+            continue
+    return out
+
+
 def current_user_id(authorization: str | None = Header(default=None)) -> uuid.UUID:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise AppError("UNAUTHENTICATED", "Authorization 헤더 없음")
@@ -144,6 +159,16 @@ def current_user_id(authorization: str | None = Header(default=None)) -> uuid.UU
             return uuid.UUID(token[4:])
         except ValueError:
             raise AppError("UNAUTHENTICATED", "dev 토큰 형식: dev:<uuid>")
+
+    # 기능 확인용 페이지: Bearer demo:<비밀번호>:<계정 이름>. DEMO_PASSWORD 를 넣은 서버에서만 받는다.
+    # HTTP 헤더에는 한글을 못 실어서 비밀번호와 이름은 URL 인코딩(encodeURIComponent)해서 온다
+    if settings().demo_password and token.startswith("demo:"):
+        password, _, name = token[5:].rpartition(":")
+        password, name = unquote(password), unquote(name)
+        user = demo_accounts().get(name)
+        if user is None or not hmac.compare_digest(password.encode(), settings().demo_password.encode()):
+            raise AppError("UNAUTHENTICATED", "확인용 계정이 아님")
+        return user
 
     try:
         claims = _decode(token)
