@@ -123,22 +123,31 @@ async function api(method, path, body) {
 }
 
 // ---------- 들어가기 ----------
-$('loginBtn').onclick = async () => {
-  password = $('pw').value;
+$('loginBtn').onclick = () => login($('pw').value);
+async function login(pw, as) {
+  password = pw;
   const { accounts } = await api('POST', '/v1/demo/login', { password });
+  if (as && accounts.includes(as)) return enter(as);
   const row = $('accounts'); row.replaceChildren();
   if (!accounts.length) row.append(el('span', '확인용 계정이 아직 없어요. 서버의 DEMO_ACCOUNTS 를 확인해 주세요.'));
   accounts.forEach(name => row.append(btn(name, () => enter(name))));
   $('accountRow').classList.remove('hide');
-};
+}
 async function enter(name) {
-  account = name; token = 'demo:' + encodeURIComponent(password) + ':' + encodeURIComponent(name);   // 헤더에는 한글을 못 싣는다 analysis = null; showAll = false;
+  // 헤더에는 한글을 못 실어서 URL 인코딩한다
+  account = name; token = 'demo:' + encodeURIComponent(password) + ':' + encodeURIComponent(name);
+  analysis = null; showAll = false;
   $('who').textContent = name + ' 계정으로 보는 중';
   $('loginBox').classList.add('hide'); $('app').classList.remove('hide'); $('analysis').replaceChildren(); $('anaMsg').textContent = '';
   await refresh();
 }
 $('logoutBtn').onclick = () => { token = null; clearTimeout(timer); $('app').classList.add('hide'); $('loginBox').classList.remove('hide'); };
 $('refreshBtn').onclick = () => refresh();
+// 링크 끝에 #key=비밀번호&as=이름 이 있으면 입력 없이 바로 들어간다. # 뒤는 서버로 가지 않아 접속 기록에 남지 않는다
+(() => {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.get('key')) login(h.get('key'), h.get('as')).catch(() => {});
+})();
 
 // ---------- 기록 쓰기 ----------
 GENRES.forEach(g => $('f_genre').append(new Option(g, g)));
