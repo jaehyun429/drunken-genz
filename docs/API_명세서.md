@@ -229,6 +229,8 @@ RLS: 본인 select 만. 쓰기는 서버만.
 - 푸시는 1분마다 서버가 밀린 알림을 보고 보냄. 등록된 기기 전부에. 하루 넘게 밀린 것은 안 보냄
 - 방해 금지에 생긴 알림이 2개 이상이면 방해 금지가 끝난 뒤 하나로, 1개면 그 알림 그대로 보냄
 - `notification_setting.types` 에서 끈 종류: **푸시만 안 보내고 알림함에는 쌓임** `TODO(기획)`. `push_enabled: false` 도 같음
+- `related_found` `[v0.3.5]`: 매일 한국 시간 9시대에 서버가 사용자당 한 행을 만든다. `count` = 새로 붙은 경험 수 (경험 하나가 질문 여러 개에 맞아도 한 번, 지금 볼 수 없는 카드와 내 경험은 안 셈), `payload.question_ids` = 새 경험이 붙은 질문들. 9시 뒤에 붙은 것은 다음 날 아침. 한 번 알린 질문은 사용자가 안 열어 봐도 다시 알리지 않는다 (`question.related_notified_at`, 서버만 씀)
+- `reminder` `[v0.3.5]`: `notification_setting.reminders` 에 사용자가 넣은 활동만, 고른 요일·시간(한국 시간)에 한 행. `payload` 는 `{ "experience_id" }`. 진행 중(`in_progress`)인 활동만, 활동·날짜당 한 번. `types.reminder` 가 `false` 면 알림함에도 안 만든다. 그 날짜의 회차 기록이 이미 있으면 건너뜀 `TODO(기획)`. 예정 시각을 60분 넘기면 그날은 건너뜀. 방해 금지 시간에 걸리면 푸시는 아침으로 밀림
 - Q&A 트리거 `notify_on_qa`: 내 카드에 내가 남긴 질문, 서로 차단한 사이는 알림 없음. `qa` 가 실제 테이블이 되면 붙임 (지금은 함수만 있음)
 
 RLS: 본인 select, `read`만 update (컬럼 권한). 생성은 서버(트리거 + FastAPI). 30일 지난 건 cron 삭제. 앱은 모르는 `type`이 오면 일반 알림으로 표시. 알림이 가리키는 글이 없어져도 알림은 남김 → 앱이 "지금은 볼 수 없는 글이에요". 차단한 사람의 활동으로는 알림을 만들지 않음. 익명이라 문구에 닉네임 안 넣음.
@@ -241,7 +243,7 @@ RLS: 본인 select, `read`만 update (컬럼 권한). 생성은 서버(트리거
 | push_enabled | bool |
 | types | jsonb — 유형별 on/off |
 | quiet_start, quiet_end | time — 기본 22:00 / 08:00 (Asia/Seoul 고정) |
-| reminders | jsonb — `{ experience_id: { days: [...], time: "21:00" } }` |
+| reminders | jsonb — `{ experience_id: { days: [...], time: "21:00" } }`. `days` 는 요일 숫자 **0=일, 1=월 … 6=토** (JS `getDay()` 와 같음. 7 도 일요일로 받음), `time` 은 한국 시간 `HH:MM`. 리마인드를 끄려면 그 활동의 키를 지운다 `[v0.3.5]` |
 
 RLS: 본인 전부. *v0.1의 `expo_push_token` 삭제 → 1.6으로.*
 
@@ -611,7 +613,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 - 새 공개 카드 → ~~`saved = true`인 질문들~~ **`notify_on_related` 가 켜진 질문**과 매칭 → `related_new` 켬 → **매일 09:00 KST** 사용자당 `related_found` 알림 하나 (경험 수는 질문 여러 개에 맞아도 한 번만 셈, 내 경험이 내 질문에 맞는 건 제외) `[v0.3.1]`
 - 방해 금지(22~08)에 쌓인 알림 → 08:00 에 하나로 묶어 푸시 `[v0.3.1]`. 구현: 1분마다 `push_checked_at is null` 인 알림을 보고, 그 사람의 방해 금지 시간이면 그대로 두고 아니면 보냄 (그래서 묶음 푸시는 08:00~08:01 사이). 사용자가 방해 금지 시간을 바꿨으면 그 시간 기준 `[v0.3.4]`
 - 5분마다 sweep: `question_batch` 없는 경험 → 질문 생성 `[v0.3.1]`
-- 리마인드 푸시 cron (Asia/Seoul 기준, 방해 금지 제외)
+- 리마인드 푸시 cron (Asia/Seoul 기준, 방해 금지 제외). 구현: 1분마다 `notification_setting.reminders` 를 보고 차례가 된 활동에 `reminder` 알림을 만든다 `[v0.3.5]`
 - 30일 지난 알림 삭제, 14일 미답변 Q&A를 `no_answer`로 변경 (삭제 안 함) `[수정 #3]`
 - Expo 전송 결과 `DeviceNotRegistered` → 토큰 삭제
 - *v0.1의 "임시저장 2일째 알림" 삭제 — 앱 로컬 알림으로*
@@ -656,6 +658,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 
 ## 변경 이력
 
+- v0.3.5 (11/23) — 알림 나머지 (이슈 #18). 09:00 `related_found`, 리마인드, `reminders.days` 요일 숫자 정의, `question.related_notified_at` (DB 는 `005` 에 추가)
 - v0.3.4 (11/22) — 알림 구현 기준 갱신 (이슈 #18). `notification.push_checked_at`, DB 함수 `notification_add`, Q&A 트리거 함수 수정(같은 날 두 번째 질문에서 유니크 충돌), 푸시 `data`·문구, 끈 종류는 푸시만 안 보냄. DB 는 `005_jaehyun_notification.sql`. 관련 경험 09:00 알림과 리마인드는 다음 커밋
 - v0.3.3 (11/22) — 분석 응답 처리 11/16 기획 변경 반영 (기능명세서 15장, 이슈 #16). `POST /analysis` 패턴을 근거 수 순으로, `reask`·`reask_new_count`·`reask_count` 추가. `later` 는 다시 분석해도 남음('확인 중'), `no` 는 조건이 맞으면 한 번 다시 보여주고 또 `no` 면 영구 제외. `analysis_pattern` 컬럼 6개 추가. DB 는 `004_jaehyun_analysis_1116.sql`. `criteria`(선택 기준 문장)는 다음 PR
 - v0.3.2 (11/17) — 질문 생성 11/14 기획 변경 반영 (PRD 7.2·7.2.1, 기능명세서 14.1). 질문 4개 고정, `question.type` 에 `write_more`(더 적어보기) 추가, `axis` 에 `decision`·`gap_*` 추가, `question.answer`·`answered_at`, `question_batch.no_new`·`shown_texts`, `POST /questions/{id}/answer` 신설, 재생성 24시간 1회 + 답 1개당 1회, 입력 해시 재사용 삭제, `/related` 는 더 적어보기 400. DB 는 `003_jaehyun_question_1114.sql`

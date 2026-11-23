@@ -7,6 +7,11 @@ create index if not exists notification_unchecked_idx on notification (created_a
 -- 005 전에 만들어진 알림은 이제 와서 푸시하지 않는다
 update notification set push_checked_at = coalesce(pushed_at, now()) where push_checked_at is null and created_at < now() - interval '1 day';
 
+-- 새 관련 경험 알림(related_found)에 이미 실어 보낸 질문인지. 오전 9시 작업이 채운다.
+-- related_new 는 사용자가 볼 때까지 켜져 있어서, 이 값이 없으면 안 열어 본 질문을 날마다 다시 알리게 된다.
+-- 관련 경험이 다시 0개가 됐다가 새로 붙으면 서버가 null 로 되돌린다. 앱은 못 바꾼다 (002 의 컬럼 권한에 없음)
+alter table question add column if not exists related_notified_at timestamptz;
+
 -- 알림 한 건 넣기. 트리거와 FastAPI 가 같이 쓴다.
 -- 묶음 키가 같으면 행을 새로 만들지 않고 count 만 올린다 ("질문 1→3개", 지은 11/14). p_bump = false 면 이미 있을 때 아무것도 안 한다 (리마인드처럼 하루 한 번만 만드는 것)
 create or replace function notification_add(
