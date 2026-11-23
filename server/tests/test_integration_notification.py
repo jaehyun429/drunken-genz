@@ -48,6 +48,8 @@ def env(monkeypatch):
     monkeypatch.setattr(push, "send", fake)
     # 다른 테스트가 남긴 알림이 섞이지 않게 전부 본 것으로 표시
     db(lambda c: c.execute("update notification set push_checked_at = now() where push_checked_at is null"))
+    # 다른 테스트가 남긴 "관련 경험이 새로 붙은 질문"이 9시 알림 개수에 섞이지 않게
+    db(lambda c: c.execute("update question set related_notified_at = now() where related_new and related_notified_at is null"))
     from app.main import app
     with TestClient(app) as client:
         yield client, fake
