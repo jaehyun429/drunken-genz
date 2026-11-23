@@ -9,6 +9,7 @@ from .errors import AppError, app_error_handler, unhandled_error_handler
 from .questions.router import router as questions_router
 from .embedding.router import router as embedding_router
 from .related.router import router as related_router
+from .analysis.router import router as analysis_router
 from .questions import sweep
 from .activities import router as activities_router
 
@@ -32,6 +33,7 @@ app.include_router(questions_router, prefix="/v1")
 app.include_router(embedding_router, prefix="/v1")
 app.include_router(related_router, prefix="/v1")
 app.include_router(activities_router, prefix="/v1")   # 소윤
+app.include_router(analysis_router, prefix="/v1")
 
 
 @app.get("/v1/health")

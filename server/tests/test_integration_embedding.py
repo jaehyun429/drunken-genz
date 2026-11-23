@@ -163,6 +163,54 @@ def test_unpublish_clears_embedding_and_related_cache(env):
     assert filters == ["same_role"], "이 카드를 담은 캐시만 지워지고 나머지는 남음"
 
 
+def test_delete_webhook_clears_related_cache(env):
+    """공개된 경험을 삭제하면 DELETE 웹훅이 온다 (record 는 null). 그 카드를 담은 캐시만 지운다."""
+    client = env
+    owner, asker = uuid.uuid4(), uuid.uuid4()
+    eid = asyncio.run(_seed_card(owner, "편의점 야간 알바", "야간 근무", ["판매"], "새벽 취객 상대"))
+    other = asyncio.run(_seed_card(owner, "카페 알바", "바리스타", ["판매"], "단골이 생겼다"))
+
+    async def seed_cache_then_delete():
+        conn = await asyncpg.connect(DB)
+        await conn.execute("insert into auth.users (id) values ($1) on conflict do nothing", asker)
+        qeid = await conn.fetchval(
+            "insert into experience (user_id, activity_name, genre, role, period_start, did_chips) "
+            "values ($1, '축제 부스', '행사 운영', '기획', '2026-01', '{기획}') returning id", asker)
+        qid = await conn.fetchval(
+            "insert into question (experience_id, user_id, type, axis, text, source, source_activity_name) "
+            "values ($1, $2, 'try_next', 'role', '야간에 일해보면?', '한 줄', '축제 부스') returning id", qeid, asker)
+        await conn.execute("insert into related_cache (question_id, filter, items) values ($1, 'all', $2::jsonb)",
+                           qid, f'[{{"experience_id": "{eid}", "reason": null, "score": 0.8}}]')
+        await conn.execute("insert into related_cache (question_id, filter, items) values ($1, 'same_role', $2::jsonb)",
+                           qid, f'[{{"experience_id": "{other}", "reason": null, "score": 0.7}}]')
+        await conn.execute("delete from experience where id = $1", eid)
+        await conn.close()
+        return qid
+    qid = asyncio.run(seed_cache_then_delete())
+
+    r = client.post("/v1/internal/experience-published", headers={"X-Webhook-Secret": "s3cret"},
+                    json={"type": "DELETE", "table": "experience", "schema": "public", "record": None,
+                          "old_record": {"id": str(eid), "visibility": "anonymous"}})
+    assert r.status_code == 202 and r.json() == {"experience_id": str(eid), "action": "delete"}, r.text
+
+    async def check():
+        conn = await asyncpg.connect(DB)
+        for _ in range(50):
+            filters = [x["filter"] for x in await conn.fetch("select filter from related_cache where question_id = $1", qid)]
+            if filters == ["same_role"]:
+                break
+            await asyncio.sleep(0.1)
+        await conn.close()
+        return filters
+    assert asyncio.run(check()) == ["same_role"], "지워진 카드를 담은 캐시만 지워지고 나머지는 남음"
+
+
+def test_delete_webhook_without_old_id_is_ignored(env):
+    r = env.post("/v1/internal/experience-published", headers={"X-Webhook-Secret": "s3cret"},
+                 json={"type": "DELETE", "table": "experience", "record": None, "old_record": None})
+    assert r.status_code == 202 and r.json() == {"ignored": True}
+
+
 def test_sweep_fills_missing_embeddings(env):
     client = env
     uid = uuid.uuid4()
