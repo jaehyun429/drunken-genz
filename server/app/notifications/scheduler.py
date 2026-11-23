@@ -1,4 +1,4 @@
-"""알림 주기 작업. lifespan 에서 띄운다. 1분마다 밀린 푸시를 보고, 한 시간마다 오래된 알림을 지운다."""
+"""알림 주기 작업. lifespan 에서 띄운다. 1분마다 9시 관련 경험 알림·리마인드를 만들고 밀린 푸시를 보고, 한 시간마다 오래된 알림을 지운다."""
 from __future__ import annotations
 import asyncio
 import logging
@@ -14,7 +14,7 @@ async def run_forever():
     while True:
         await asyncio.sleep(NOTIFY_TICK_S)
         tick += 1
-        jobs = [service.dispatch_pending] + ([service.purge_old] if tick % NOTIFY_PURGE_EVERY_TICKS == 0 else [])
+        jobs = [service.daily_related, service.reminders, service.dispatch_pending] + ([service.purge_old] if tick % NOTIFY_PURGE_EVERY_TICKS == 0 else [])
         for job in jobs:
             try:
                 await job()

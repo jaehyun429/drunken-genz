@@ -10,7 +10,8 @@ from zoneinfo import ZoneInfo
 import asyncpg
 
 from .. import db
-from ..constants import (NOTIFICATION_KEEP_DAYS, PUSH_BATCH, PUSH_MAX_AGE_H, QUIET_END, QUIET_START, TZ)
+from ..constants import (NOTIFICATION_KEEP_DAYS, PUSH_BATCH, PUSH_MAX_AGE_H, QUIET_END, QUIET_START, RELATED_NOTIFY_HOUR,
+                         REMINDER_LATE_MAX_MIN, TZ)
 from . import push, text
 
 log = logging.getLogger("notify")
@@ -131,6 +132,91 @@ async def _activity_name(conn: asyncpg.Connection, user_id: uuid.UUID, payload) 
     if eid is None:
         return None
     return await conn.fetchval("select activity_name from experience where id = $1 and user_id = $2", eid, user_id)
+
+
+# ---------- 새 관련 경험 알림 (하루 한 번 오전 9시) ----------
+
+async def daily_related(now: datetime | None = None) -> int:
+    """관련 경험이 새로 붙은 질문(related_new)을 사용자별로 모아 related_found 알림 하나를 만든다 (지은 11/14). 만든 알림 수 반환.
+       - 1분마다 불리지만 한국 시간 9시대에만 일하고, 오늘 이미 받은 사람은 건너뛴다. 9시 뒤에 붙은 것은 다음 날 아침에 간다
+       - count = 새로 붙은 경험 수. 경험 하나가 질문 여러 개에 맞아도 한 번만 센다
+       - 지금 볼 수 없는 카드(비공개·삭제·차단)와 내 경험은 세지 않는다. 그래서 0개가 되면 알림을 만들지 않는다
+       - 한 번 알린 질문은 related_notified_at 으로 표시해서 사용자가 안 열어 봐도 다시 알리지 않는다"""
+    now = now or _now()
+    if now.astimezone(KST).hour != RELATED_NOTIFY_HOUR:
+        return 0
+    key = group_key("related_found", "all", now)
+    made = 0
+    async with db.pool().acquire() as conn, conn.transaction():
+        rows = await conn.fetch(
+            "select q.user_id, array_agg(distinct q.id) as question_ids, count(distinct p.experience_id) as n "
+            "from question q "
+            "join related_cache c on c.question_id = q.id and c.filter = 'all' "
+            "cross join lateral jsonb_array_elements(c.items) it "
+            "join experience_public p on p.experience_id::text = it->>'experience_id' "
+            "where q.related_new and q.related_notified_at is null and p.user_id <> q.user_id "
+            "  and not exists (select 1 from block b where (b.user_id = q.user_id and b.blocked_id = p.user_id) "
+            "                                         or (b.user_id = p.user_id and b.blocked_id = q.user_id)) "
+            "  and not exists (select 1 from notification n where n.user_id = q.user_id and n.grouped_key = $1) "
+            "group by q.user_id", key)
+        for r in rows:
+            qids = list(r["question_ids"])
+            nid = await add(conn, r["user_id"], "related_found", {"question_ids": [str(q) for q in qids]}, key, bump=False)
+            await conn.execute("update notification set count = $2 where id = $1", nid, r["n"])
+            await conn.execute("update question set related_notified_at = $2 where id = any($1::uuid[])", qids, now)
+            made += 1
+    if made:
+        log.info("새 관련 경험 알림 %d건", made)
+    return made
+
+
+# ---------- 리마인드 ----------
+
+def reminder_due(cfg, now: datetime) -> datetime | None:
+    """설정 한 개 {"days": [1,3,5], "time": "21:00"} 가 지금 보낼 차례면 그 예정 시각, 아니면 None.
+       요일은 0=일 1=월 … 6=토. 7 도 일요일로 받는다 (앱이 어느 쪽으로 세든 맞게). 시간은 한국 시간.
+       예정 시각부터 REMINDER_LATE_MAX_MIN 분 안에만 보낸다. 자정을 넘긴 경우를 위해 어제 것도 본다."""
+    try:
+        days = {int(d) % 7 for d in cfg["days"]}
+        at = _hhmm(str(cfg["time"]))
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
+    local = now.astimezone(KST)
+    for day in (local.date(), local.date() - timedelta(days=1)):
+        due = datetime.combine(day, at, tzinfo=KST)
+        if day.isoweekday() % 7 in days and due <= local < due + timedelta(minutes=REMINDER_LATE_MAX_MIN):
+            return due
+    return None
+
+
+async def reminders(now: datetime | None = None) -> int:
+    """진행 중 활동 리마인드. 사용자가 활동마다 고른 요일·시간(notification_setting.reminders)에 알림 한 건. 만든 수 반환.
+       - 사용자가 직접 고른 활동만. 자동으로 켜지 않는다 (기획 "1117 수정" 알림 표)
+       - 활동이 끝났거나 지워졌으면 건너뛴다. 리마인드 종류를 껐으면 알림함에도 만들지 않는다
+       - 활동·날짜당 한 번 (묶음 키). 푸시는 dispatch_pending 이 보낸다. 방해 금지 시간이면 아침으로 밀린다
+       TODO(기획): 오늘 이미 회차 기록을 쓴 활동은 건너뛴다 (쓴 직후에 "기록을 남겨볼까요"가 오지 않게). 명세에 없다"""
+    now = now or _now()
+    today = now.astimezone(KST).date()
+    made = 0
+    async with db.pool().acquire() as conn:
+        rows = await conn.fetch(
+            "select s.user_id, e.id as experience_id, r.value as cfg "
+            "from notification_setting s cross join lateral jsonb_each(s.reminders) r "
+            "join experience e on e.id::text = r.key and e.user_id = s.user_id and e.status = 'in_progress' "
+            "where jsonb_typeof(s.reminders) = 'object' and coalesce(s.types->>'reminder', 'true') <> 'false' "
+            "  and not exists (select 1 from experience_log l where l.experience_id = e.id and l.log_date = $1)", today)
+        for r in rows:
+            due = reminder_due(r["cfg"], now)
+            if due is None:
+                continue
+            key = group_key("reminder", r["experience_id"], due)
+            if await conn.fetchval("select 1 from notification where user_id = $1 and grouped_key = $2", r["user_id"], key):
+                continue
+            await add(conn, r["user_id"], "reminder", {"experience_id": str(r["experience_id"])}, key, bump=False)
+            made += 1
+    if made:
+        log.info("리마인드 알림 %d건", made)
+    return made
 
 
 # ---------- 정리 ----------

@@ -225,3 +225,148 @@ def test_qa_trigger_groups_and_skips_self_and_blocked(env):
     mine, theirs, none = db(go)
     assert [(r["type"], r["count"]) for r in mine] == [("new_question", 2)], "같은 카드·같은 날은 한 행, 내 질문·차단은 제외"
     assert [r["type"] for r in theirs] == ["answer"] and none == 0
+
+
+# ---------- 새 관련 경험 알림 (오전 9시) ----------
+
+NINE = datetime(2026, 11, 24, 9, 0, 30, tzinfo=KST)
+
+
+def add_public_card(owner, name="공개 카드"):
+    eid = add_exp(owner, name)
+    db(lambda c: c.execute("update experience set visibility = 'anonymous', published_at = now(), "
+                           "published_snapshot = '{}'::jsonb where id = $1", eid))
+    return eid
+
+
+def add_question(uid, cards, related_new=True):
+    """질문 하나와 그 질문에 붙은 관련 경험 캐시."""
+    async def go(c):
+        eid = await c.fetchval(
+            "insert into experience (user_id, status, activity_name, genre, role, period_start, did_chips) "
+            "values ($1, 'done', '내 활동', '서비스·응대', '직원', '2026-01', '{고객 응대}') returning id", uid)
+        qid = await c.fetchval(
+            "insert into question (experience_id, user_id, type, axis, text, source, source_activity_name, notify_on_related, related_new) "
+            "values ($1, $2, 'try_next', 'method', $3, '한 일 칩', '내 활동', true, $4) returning id",
+            eid, uid, f"다음엔 {uuid.uuid4().hex[:6]} 해보면 어떨까요?", related_new)
+        await c.execute("insert into related_cache (question_id, filter, items) values ($1, 'all', $2::jsonb)", qid,
+                        json.dumps([{"experience_id": str(x), "reason": None, "score": 0.7} for x in cards]))
+        return qid
+    return db(go)
+
+
+def related_rows(uid):
+    return db(lambda c: c.fetch("select * from notification where user_id = $1 and type = 'related_found'", uid))
+
+
+def test_related_found_is_one_notification_per_user_at_nine(env):
+    client, fake = env
+    from app.notifications import service
+    me, other = new_user(), new_user(device=None)
+    card_a, card_b = add_public_card(other, "카드 A"), add_public_card(other, "카드 B")
+    q1 = add_question(me, [card_a, card_b])
+    q2 = add_question(me, [card_a])                      # 카드 A 는 질문 두 개에 맞는다 → 경험 수는 한 번만
+    add_question(me, [card_b], related_new=False)        # 새로 붙은 것이 아닌 질문
+
+    assert run(client, service.daily_related, NINE - timedelta(hours=1)) == 0 and related_rows(me) == [], "9시 전에는 안 만든다"
+    assert run(client, service.daily_related, NINE) == 1
+    [row] = related_rows(me)
+    assert row["count"] == 2 and set(json.loads(row["payload"])["question_ids"]) == {str(q1), str(q2)}
+    assert run(client, service.daily_related, NINE + timedelta(minutes=1)) == 0, "같은 날 두 번 만들지 않는다"
+
+    dispatch(client, NINE + timedelta(minutes=1))
+    assert fake.sent[-1]["body"] == "담은 질문에 맞는 경험이 2개 생겼어요"
+
+    # 사용자가 안 열어 봐도(related_new 가 그대로여도) 다음 날 같은 질문으로 다시 알리지 않는다
+    assert run(client, service.daily_related, NINE + timedelta(days=1)) == 0
+    # 9시 뒤에 새로 붙은 질문은 다음 날 아침에 간다
+    q3 = add_question(me, [card_b])
+    assert run(client, service.daily_related, NINE + timedelta(minutes=30)) == 0
+    assert run(client, service.daily_related, NINE + timedelta(days=1)) == 1
+    rows = related_rows(me)
+    assert len(rows) == 2 and any(json.loads(r["payload"])["question_ids"] == [str(q3)] and r["count"] == 1 for r in rows)
+
+
+def test_related_found_skips_cards_the_user_cannot_see(env):
+    client, _ = env
+    from app.notifications import service
+    me, other, blocked = new_user(), new_user(device=None), new_user(device=None)
+    gone = add_public_card(other)
+    db(lambda c: c.execute("update experience set visibility = 'private' where id = $1", gone))
+    hidden = add_public_card(blocked)
+    db(lambda c: c.execute("insert into block (user_id, blocked_id) values ($1, $2)", me, blocked))
+    mine = add_public_card(me)
+    add_question(me, [gone, hidden, mine])
+    assert run(client, service.daily_related, NINE) == 0 and related_rows(me) == []
+
+
+# ---------- 리마인드 ----------
+
+MON_2100 = datetime(2026, 11, 23, 21, 0, 20, tzinfo=KST)      # 2026-11-23 은 월요일
+
+
+def set_reminder(uid, eid, days, at="21:00", types=None, quiet=("22:00", "08:00")):
+    from datetime import time as _t
+    qs, qe = (_t(*map(int, x.split(":"))) for x in quiet)
+    db(lambda c: c.execute(
+        "insert into notification_setting (user_id, reminders, types, quiet_start, quiet_end) values ($1, $2::jsonb, $3::jsonb, $4, $5) "
+        "on conflict (user_id) do update set reminders = excluded.reminders, types = excluded.types",
+        uid, json.dumps({str(eid): {"days": days, "time": at}}), json.dumps(types or {}), qs, qe))
+
+
+def ongoing(uid, name="주말 카페 알바"):
+    eid = add_exp(uid, name)
+    db(lambda c: c.execute("update experience set status = 'in_progress', period_end = null where id = $1", eid))
+    return eid
+
+
+def reminder_rows(uid):
+    return db(lambda c: c.fetch("select * from notification where user_id = $1 and type = 'reminder'", uid))
+
+
+def test_reminder_goes_out_once_on_the_chosen_day_and_time(env):
+    client, fake = env
+    from app.notifications import service
+    uid = new_user()
+    eid = ongoing(uid)
+    set_reminder(uid, eid, [1, 4])                                   # 월, 목 21:00
+    assert run(client, service.reminders, MON_2100 - timedelta(minutes=5)) == 0, "시간 전"
+    assert run(client, service.reminders, MON_2100) == 1
+    assert run(client, service.reminders, MON_2100 + timedelta(minutes=1)) == 0, "활동·날짜당 한 번"
+    [row] = reminder_rows(uid)
+    assert json.loads(row["payload"]) == {"experience_id": str(eid)}
+    dispatch(client, MON_2100 + timedelta(minutes=1))
+    assert fake.sent[-1]["body"] == "「주말 카페 알바」 이번 주 기록을 남겨볼까요?"
+    assert run(client, service.reminders, MON_2100 + timedelta(days=1)) == 0, "화요일은 고르지 않았다"
+    assert run(client, service.reminders, MON_2100 + timedelta(days=3)) == 1, "목요일"
+
+
+def test_reminder_is_skipped_when_it_should_not_fire(env):
+    client, _ = env
+    from app.notifications import service
+    # 끝난 활동
+    a = new_user(); ea = add_exp(a); set_reminder(a, ea, [1])
+    # 리마인드 종류를 끔
+    b = new_user(); eb = ongoing(b); set_reminder(b, eb, [1], types={"reminder": False})
+    # 오늘 이미 회차 기록을 씀
+    c_ = new_user(); ec = ongoing(c_); set_reminder(c_, ec, [1])
+    db(lambda c: c.execute("insert into experience_log (id, experience_id, user_id, log_date, situation_chips, emotion_chips) "
+                           "values ($1, $2, $3, '2026-11-23', '{바빴다}', '{지침}')", uuid.uuid4(), ec, c_))
+    # 서버가 꺼져 있다가 두 시간 늦게 켜짐
+    d = new_user(); ed = ongoing(d); set_reminder(d, ed, [1], at="19:00")
+    # 설정이 깨져 있음
+    e = new_user(); ee = ongoing(e)
+    db(lambda c: c.execute("insert into notification_setting (user_id, reminders) values ($1, $2::jsonb)", e,
+                           json.dumps({str(ee): {"days": "월", "time": "밤"}, "엉뚱한 키": 3})))
+    run(client, service.reminders, MON_2100)
+    assert all(reminder_rows(u) == [] for u in (a, b, c_, d, e))
+
+
+def test_reminder_day_numbers_and_midnight():
+    from app.notifications.service import reminder_due
+    sun = datetime(2026, 11, 22, 21, 0, tzinfo=KST)                  # 일요일
+    assert reminder_due({"days": [0], "time": "21:00"}, sun) and reminder_due({"days": [7], "time": "21:00"}, sun), "일요일은 0 과 7 둘 다"
+    assert reminder_due({"days": [1], "time": "21:00"}, sun) is None
+    late = datetime(2026, 11, 23, 0, 10, tzinfo=KST)                 # 일요일 23:50 예정, 자정을 넘겨 처음 봄
+    assert reminder_due({"days": [0], "time": "23:50"}, late) == datetime(2026, 11, 22, 23, 50, tzinfo=KST)
+    assert reminder_due({"days": [0]}, sun) is None and reminder_due(None, sun) is None

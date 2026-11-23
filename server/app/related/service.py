@@ -197,9 +197,9 @@ async def on_new_card(conn: asyncpg.Connection, experience_id: uuid.UUID, owner_
             await _store(conn, q["id"], "all", items, model)
             # 다른 filter 캐시는 지워서 다음에 열 때 새 카드를 넣고 다시 계산하게 한다
             await conn.execute("delete from related_cache where question_id = $1 and filter <> 'all'", q["id"])
-            await conn.execute("update question set related_new = true where id = $1", q["id"])
+            await conn.execute("update question set related_new = true, related_notified_at = null where id = $1", q["id"])
         hit += 1
-        # TODO(6단계 알림): related_found 는 오전 9시 작업이 related_new 인 질문을 사용자별로 모아 하나로 보낸다
+        # 알림은 notifications.service.daily_related 가 오전 9시에 사용자별로 모아 하나로 만든다
     if hit:
         log.info("새 카드 %s → 관련 경험이 새로 붙은 질문 %d개", experience_id, hit)
     return hit

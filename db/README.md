@@ -11,7 +11,7 @@ API 명세 v0.2 + 레포 CLAUDE.md(11/10 회의 반영)를 SQL 로 옮긴 것.
 | `002_jaehyun_rls.sql` | 로컬 + Supabase | RLS, 컬럼 권한, 트리거 |
 | `003_jaehyun_question_1114.sql` | 로컬 + Supabase | 11/14 기획 변경: `question.type` 에 `write_more`, `answer`·`answered_at`, `question_batch.no_new`·`shown_texts`. 여러 번 돌려도 됨. **Supabase 에는 아직 적용 안 함** |
 | `004_jaehyun_analysis_1116.sql` | 로컬 + Supabase | 11/16 기획 변경(기능명세서 15장): `analysis_pattern` 에 `feedback_at`·`feedback_evidence_count`·`reask`·`reask_new_count`·`resurfaced`·`excluded`. 여러 번 돌려도 됨. 이미 만든 로컬 DB 에는 이 파일만 따로 적용 (`docker exec -i genz-pg psql -U postgres -d genz < 004_jaehyun_analysis_1116.sql`). **Supabase 에는 아직 적용 안 함** |
-| `005_jaehyun_notification.sql` | 로컬 + Supabase | 알림(이슈 #18): `notification.push_checked_at`, 알림 넣는 함수 `notification_add`(묶음이면 count +1), Q&A 트리거 함수 `notify_on_qa` 수정. 여러 번 돌려도 됨. **Supabase 에는 아직 적용 안 함** |
+| `005_jaehyun_notification.sql` | 로컬 + Supabase | 알림(이슈 #18): `notification.push_checked_at`, 알림 넣는 함수 `notification_add`(묶음이면 count +1), Q&A 트리거 함수 `notify_on_qa` 수정, `question.related_notified_at`(9시 알림에 이미 실은 질문 표시, 11/23 추가). 여러 번 돌려도 됨. **Supabase 에는 아직 적용 안 함** |
 | `apply_local.sh` | 맥 | Docker 로 pgvector Postgres 띄우고 위 순서대로 적용 (포트 54329) |
 
 11/10 회의로 바뀐 것: `question.experience_id` 는 nullable + `on delete set null` (경험 삭제돼도 담은 질문 유지, 안 담은 건 트리거로 삭제), `source_activity_name`·`axis`·`done_experience_id`·`done_dismissed` 추가, `question_batch` 에 `trigger`(save/user)·`failure_reason`(connection/model)·`attempts` 추가.
