@@ -116,7 +116,24 @@ v0.1 (11/06) → v0.2 (11/09) · 개발팀 회의 + 하영 "앱 ↔ 서버 경�
 - 본인: select 전부. insert·update는 **굵은 컬럼 제외** (컬럼 권한 REVOKE 또는 트리거로 막음)
 - 남: **원본 테이블 접근 불가.** 공개 카드는 `experience_public` 뷰 또는 FastAPI로만
 
-**뷰 experience_public** — `visibility != 'private'`인 행의 `published_snapshot`·`masked`만 노출. 뷰는 `security_invoker`로 만들어 RLS가 적용되게 하고, 차단 관계 필터는 FastAPI 쿼리에서 건다 (요청한 사용자 id 기준 — 서버는 `service_role`로 읽어서 DB가 누가 보는지 모름). **앱은 이 뷰도 직접 안 읽음** — FastAPI가 읽어서 PublicCard로 내려줌. `[수정 #2]`
+**published_snapshot 모양 (11/20)** — 공개 확정 순간의 복사본. 키 이름은 experience 컬럼과 같음. 원본을 나중에 고쳐도 안 바뀜
+```json
+{
+  "status": "done", "activity_name": "...", "official_period": 13 | null, "genre": "...", "type": "..." | null, "role": "...",
+  "period_start": "2026-03", "period_end": "2026-06" | null, "place": "..." | null,
+  "did_chips": [], "did_notes": {}, "custom_chips": [], "conditions": {},
+  "situation_chips": [], "situation_notes": {}, "emotion_chips": [], "one_liner": "..." | null, "ai_tags": [],
+  "official_activity": { "name": "...", "verified": true } | null,
+  "snapshot_version": 1
+}
+```
+- 가림을 받아들인 칸(`activity_name`·`role`·`place`·`one_liner`)은 **가린 값으로 들어감**. 원래 글자는 어디에도 안 남음
+- 기수(`official_period`)는 기본으로 들어가고, 미리보기에서 늘 "가릴까요?"를 물음. 가리면 `null` (11/20)
+- 안 넣는 것: id·user_id, 사진(공개는 나중), `pinned`, 공개 설정, 시각들
+- `masked` = 가린 칸 이름 목록 `["place", "role"]`
+- 만드는 곳: `server/app/publish/snapshot.py` `make_snapshot()`. 모양을 바꾸면 `snapshot_version`을 올림
+
+**뷰 experience_public** — `visibility != 'private'`이고 `published_snapshot`이 있는 행만. 칸: `experience_id, user_id, published_snapshot, masked, published_at, accept_questions, visibility` (원본 칸은 없음. 11/20 `visibility` 추가 — 프로필 화면은 `profile`만). 뷰는 `security_invoker`로 만들어 RLS가 적용되게 하고, 차단 관계 필터는 FastAPI 쿼리에서 건다 (요청한 사용자 id 기준 — 서버는 `service_role`로 읽어서 DB가 누가 보는지 모름). **앱은 이 뷰도 직접 안 읽음** — FastAPI가 읽어서 PublicCard로 내려줌. `[수정 #2]`
 
 **앱이 하는 호출**
 ```js
@@ -262,14 +279,23 @@ RLS: 본인 전부. 앱이 시작·포그라운드 복귀 시 upsert, 로그아�
 
 | 컬럼 | 타입 |
 |---|---|
-| user_id | uuid PK |
-| nickname | text, 필수 |
-| school, major_field, grade | text, nullable |
-| show_school, show_major, show_grade | bool |
-| show_qa | bool, 기본 false |
-| school_verified | bool — 앱이 못 바꿈 |
+| user_id | uuid PK. 기본 `auth.uid()` |
+| nickname | text, 필수, 2~12자 (앞뒤 공백 빼고). 전화번호·이메일 모양이면 DB가 막음 (피그마 PRF-⑨) |
+| school | text, nullable, 40자. 남에게는 "서울 소재 대학"처럼 넓혀서 |
+| major_field | text, nullable, 40자. 전공 계열 ("인문계열") `TODO(기획): 값 목록` |
+| grade | text, nullable, 10자 `TODO(기획): 값 목록` |
+| bio | text, nullable, 100자. 공개용 한 문장 (PRF-⑩) `TODO(기획): 길이` |
+| show_school, show_major, show_grade, show_bio, show_qa | bool, **전부 기본 false** — 처음엔 다 비공개 (11/20) |
+| school_verified | bool, 기본 false — 앱이 못 바꿈 |
+| created_at, updated_at | timestamptz. `updated_at`은 트리거로 자동 |
 
-RLS: 본인 전부. **남의 프로필은 FastAPI로만** (열 단위 공개라 RLS로 안 됨).
+RLS: 본인 전부(읽기·만들기·고치기·지우기). 단 `school_verified`·`user_id`는 컬럼 권한으로 막음. **남의 프로필은 FastAPI로만** (열 단위 공개라 RLS로 안 됨).
+
+```js
+// 가입 직후 (user_id 는 기본값)
+supabase.from('profile').insert({ nickname, school, show_school })
+supabase.from('profile').update({ grade: '3학년', show_grade: true }).eq('user_id', me)
+```
 
 ### 앱이 직접 접근하지 않는 테이블 — FastAPI만 읽고 씀
 
@@ -280,13 +306,16 @@ RLS: 본인 전부. **남의 프로필은 FastAPI로만** (열 단위 공개라 
 | id | uuid | |
 | name | text | 공식명 |
 | organizer | text | nullable |
-| period | text | `"2026-1"` 등, 회차마다 별도 행 |
+| ~~period~~ | ~~text~~ | **없앰 (11/20)** — 활동마다 한 줄. 기수는 기록의 `experience.official_period`(1~99)로 사용자가 고름 |
 | aliases | text[] | 최대 3 |
-| status | text | `pending` / `verified` |
+| status | text | `pending` / `verified`. 검색엔 `verified`만 |
 | created_by | uuid | |
-| record_count | int | 5 미만이면 숨김 |
+| genre | text | 분야 9개 중 하나, nullable `[11/18]` |
+| type | text | 유형 7개 중 하나, nullable `[11/18]` |
+| ~~series_key~~ | ~~text~~ | **없앰 (11/20)** — 기수 줄이 없어져서 묶을 필요 없음 |
+| ~~record_count~~ | ~~int~~ | 컬럼 없음 — 검색할 때 experience 를 셈. 5 미만이면 null |
 
-검색·등록은 FastAPI `/activities/*`로. 앱 직접 접근 없음 (pending 노출 제어 때문).
+검색은 FastAPI `/activities/search`로. 앱 직접 접근 없음. 목록은 소윤이 직접 넣음 (사용자 등록 없음, 11/18).
 
 ### 1.9 qa (소윤)
 
@@ -346,17 +375,17 @@ RLS: 본인 전부. **남의 프로필은 FastAPI로만** (열 단위 공개라 
 ### 기록 (소윤)
 
 #### GET /activities/search?q=
-2자 이상, 최대 5건, `verified`만. 별칭·띄어쓰기 무시. 초성은 후순위.
+2자 이상(띄어쓰기 빼고), 최대 5건, `verified`만. 별칭·띄어쓰기·대소문자 무시. 앞부분이 맞는 것 먼저. **초성**(`ㅊㅇㅂㄹㅎ`, 입력 중인 `취ㅇ`)으로도 찾음 `[11/18]`. 2자 미만이면 에러 대신 빈 목록.
+검색에는 활동 이름만 나옴. 기수는 활동을 고른 다음 **추가 선택창**에서 1~99 중 고르고(선택), `experience.official_period`에 저장 (11/20, 명금 화면 확인)
 ```json
-{ "items": [ { "id": "uuid", "name": "...", "organizer": "...", "period": "2026-1", "record_count": 12 | null } ] }
+{ "items": [ { "id": "uuid", "name": "...", "organizer": "...", "record_count": 12 | null,
+               "genre": "행사 운영" | null, "type": "대외활동" | null } ] }
 ```
-`record_count`는 5 미만이면 null.
+`record_count`는 그 활동에 연결된 기록 수 (기수 상관없이). 5 미만이면 null. ~~`period`, `periods`~~ 없앰 (11/20)
 
-#### POST /activities
-새 공식 활동 등록. `pending`으로 저장, 내 기록에만 연결.
-```json
-{ "name": "...", "organizer": "...", "period": "2026-1" }
-```
+#### ~~POST /activities~~ — 없앰 (11/18)
+~~새 공식 활동 등록. `pending`으로 저장, 내 기록에만 연결.~~
+피그마 REC-01: 활동명은 자유 입력(필수), 공식 활동 찾기는 선택. 목록에 없으면 활동명만 쓰고 넘어감. 공식 목록은 소윤이 직접 넣음.
 
 #### POST /summarize — 정리 확인
 ```json
@@ -641,7 +670,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 | 알림 종류별 기본값, 진행 중 활동 만들 때 리마인드 자동 on (일 21:00?) | 지은 `[v0.3.1]` |
 | ~~분석 "아니에요"의 범위(비슷한 패턴도 막는지), "나중에"는 언제 다시~~ → 기능명세서 15장으로 정해짐. 남은 것: "기록 5개 이후"·"더 반복"·"근거가 늘었다"의 정확한 기준 (POST /analysis 의 `TODO(기획)`) | 지은 `[v0.3.3]` |
 | 선택 기준 문장(`criteria`): 나만 보기/공개용 문장, 아니에요 → 새 문장 하루 3회. 공개용 문장이 어디에 공개되는지 (이슈 #16, 다음 PR) | 지은·재현 `[v0.3.3]` |
-| 초성 검색 — pg_trgm으로 안 되면 | 소윤 |
+| ~~초성 검색 — pg_trgm으로 안 되면~~ → 초성 함수로 넣음 (11/18) | 소윤 |
 | 개수 제한을 DB 트리거로도 걸지 (앱 체크 + 서버 체크 외에) | 소윤 |
 | `follow_up` 답변 저장 위치 | 지은 |
 | 더 적어보기 답 저장 위치 — 지금은 `question.answer` (임시). `follow_up` 과 같은 문제 `[v0.3.2]` | 지은 |
@@ -661,6 +690,9 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 - v0.3.5 (11/23) — 알림 나머지 (이슈 #18). 09:00 `related_found`, 리마인드, `reminders.days` 요일 숫자 정의, `question.related_notified_at` (DB 는 `005` 에 추가)
 - v0.3.4 (11/22) — 알림 구현 기준 갱신 (이슈 #18). `notification.push_checked_at`, DB 함수 `notification_add`, Q&A 트리거 함수 수정(같은 날 두 번째 질문에서 유니크 충돌), 푸시 `data`·문구, 끈 종류는 푸시만 안 보냄. DB 는 `005_jaehyun_notification.sql`. 관련 경험 09:00 알림과 리마인드는 다음 커밋
 - v0.3.3 (11/22) — 분석 응답 처리 11/16 기획 변경 반영 (기능명세서 15장, 이슈 #16). `POST /analysis` 패턴을 근거 수 순으로, `reask`·`reask_new_count`·`reask_count` 추가. `later` 는 다시 분석해도 남음('확인 중'), `no` 는 조건이 맞으면 한 번 다시 보여주고 또 `no` 면 영구 제외. `analysis_pattern` 컬럼 6개 추가. DB 는 `004_jaehyun_analysis_1116.sql`. `criteria`(선택 기준 문장)는 다음 PR
+- 11/20 (소윤) — `profile` 글자 수 확정, `bio`·`show_bio` 추가, 공개 기본값 전부 false, 닉네임에 연락처 금지(1.7). `published_snapshot` 모양·`masked` 형식 확정(1.1). `experience_public` 실제 뷰로 바꾸고 `visibility` 칸 추가
+- 11/20 (소윤) — 기수: 공식 활동 목록에서 빼고(`period`·`series_key`·검색 `periods` 없앰) 기록에 `official_period`(1~99, 선택)로. 공개 카드에도 들어가고 미리보기에서 가리기 제안
+- 11/18 (소윤) — 공식 활동: 검색은 `verified`만 + 초성, 기수 묶음(`periods`)·분야·유형 응답에 추가. `POST /activities` 없앰 (사용자 등록 없음). `official_activity`에 `genre`·`type`·`series_key`
 - v0.3.2 (11/17) — 질문 생성 11/14 기획 변경 반영 (PRD 7.2·7.2.1, 기능명세서 14.1). 질문 4개 고정, `question.type` 에 `write_more`(더 적어보기) 추가, `axis` 에 `decision`·`gap_*` 추가, `question.answer`·`answered_at`, `question_batch.no_new`·`shown_texts`, `POST /questions/{id}/answer` 신설, 재생성 24시간 1회 + 답 1개당 1회, 입력 해시 재사용 삭제, `/related` 는 더 적어보기 400. DB 는 `003_jaehyun_question_1114.sql`
 - v0.3.1 (11/14) — 재현 섹션 구현 기준 갱신. 1.3 `question` 컬럼 추가(`source_activity_name` `axis` `done_experience_id` `done_dismissed` `notify_on_related` `related_new`, `experience_id` nullable), 질문 2~4개. 1.3a `question_batch`·1.3b `related_cache`/`analysis_*` 신규. 1.4 `notification` 에 `count` `pushed_at`, 묶음 유니크. `/questions` 삭제 → 서버 웹훅 + `/questions/retry`. `GET /notifications` 삭제(앱 직접). `/related` 재계산 규칙. 3장 웹훅 주소·sweep·09:00 알림 (지은 11/14 답 반영)
 - v0.3 (11/14) — 소윤 검토 반영. 탐색·카드·반응 담당 재현으로 통일. 차단 필터를 뷰 → FastAPI 쿼리로. 14일 미답변 Q&A 삭제 → `qa.status = no_answer`로 접기 (POL-12). `/publish/confirm`에 `accept_questions` 추가, `/publish/settings` 신설. `updated_at` 트리거 자동 갱신 명시. `experience_log` 저장 시 본인 경험 확인. `/push/devices` 두 개 삭제 (앱 직접). helpful_reason 유니크 (experience_id, user_id) 확정 (POL-14). 답변 500자·24시간 규칙 `TODO(기획)`

@@ -14,6 +14,7 @@ from .questions import sweep
 from .demo.router import router as demo_router
 from .config import settings
 from .notifications import scheduler as notify_scheduler
+from .activities import router as activities_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -36,6 +37,7 @@ app.add_exception_handler(Exception, unhandled_error_handler)
 app.include_router(questions_router, prefix="/v1")
 app.include_router(embedding_router, prefix="/v1")
 app.include_router(related_router, prefix="/v1")
+app.include_router(activities_router, prefix="/v1")   # 소윤
 app.include_router(analysis_router, prefix="/v1")
 app.include_router(demo_router)   # 기능 확인용 페이지. DEMO_PASSWORD 가 없으면 전부 404
 if settings().demo_password:
