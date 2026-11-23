@@ -5,81 +5,142 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>기능 확인용</title>
 <style>
-  /* 디자인이 아니다. 색·아이콘 없이 글자와 버튼만 둔다 (CLAUDE.md 13장: 디자인 안 나온 화면은 레이아웃만) */
-  body { font: 15px/1.6 system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; color: #111; background: #fff; }
-  h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 17px; margin: 32px 0 8px; border-bottom: 1px solid #999; padding-bottom: 4px; }
-  h3 { font-size: 15px; margin: 0 0 4px; }
-  .note { color: #555; font-size: 13px; } .box { border: 1px solid #bbb; padding: 10px 12px; margin: 10px 0; }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
-  label { display: block; margin: 8px 0 2px; font-size: 13px; color: #333; }
-  input, select, textarea, button { font: inherit; padding: 5px 8px; border: 1px solid #888; background: #fff; color: #111; border-radius: 0; }
-  input[type=text], input[type=password], input[type=month], textarea { width: 100%; box-sizing: border-box; }
-  button { cursor: pointer; } button:disabled { color: #999; border-color: #ccc; cursor: default; }
-  button.on { font-weight: 700; border-width: 2px; }
-  .q { border-top: 1px dashed #bbb; padding: 8px 0; } .tag { font-size: 12px; border: 1px solid #888; padding: 0 5px; margin-right: 6px; white-space: nowrap; }
-  .err { border: 2px solid #111; padding: 8px 10px; margin: 10px 0; white-space: pre-wrap; } .hide { display: none; }
-  ul { margin: 4px 0; padding-left: 20px; } pre { white-space: pre-wrap; font-size: 12px; }
+  /* 확인용 페이지의 겉모습. 실제 앱 디자인(명금님 피그마)을 흉내 내지 않는다 — 읽기 편하게만 다듬은 중립 스타일 */
+  :root { --bg: #f4f5f7; --card: #fff; --line: #e3e5ea; --text: #1c1e22; --sub: #6b7280; --accent: #2f6f5e; --accent-weak: #e7f1ee;
+          --warn: #b45309; --warn-weak: #fdf3e2; --violet: #6d4fc4; --violet-weak: #efeafb; --danger: #b42318; --shadow: 0 1px 2px rgba(16,24,40,.06); }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131517; --card: #1c1f23; --line: #2c3036; --text: #eceef1; --sub: #9aa1ac; --accent: #6fc3ae; --accent-weak: #1d2f2b;
+            --warn: #f0b36a; --warn-weak: #33291a; --violet: #b3a0f0; --violet-weak: #27213a; --danger: #f1867c; --shadow: none; } }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.6 "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+         margin: 0; color: var(--text); background: var(--bg); -webkit-text-size-adjust: 100%; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 16px 64px; }
+  header.top { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 14px 0 0; }
+  .title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
+  .badge { font-size: 11px; font-weight: 600; color: var(--warn); background: var(--warn-weak); padding: 2px 8px; border-radius: 999px; }
+  .who { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); }
+  h2 { font-size: 17px; margin: 20px 0 4px; letter-spacing: -.01em; }
+  h3 { font-size: 15px; margin: 0 0 6px; letter-spacing: -.01em; }
+  p { margin: 6px 0; }
+  .note { color: var(--sub); font-size: 13px; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 12px 0; box-shadow: var(--shadow); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .field > span, label { display: block; margin: 12px 0 4px; font-size: 13px; font-weight: 600; color: var(--text); }
+  .field > span { margin-top: 0; } label small, .field small { font-weight: 400; color: var(--sub); }
+  input, select, textarea { font: inherit; width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); }
+  input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea { resize: vertical; } #f_notes input { margin-top: 6px; }
+  button { font: inherit; font-size: 14px; font-weight: 600; padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+           color: var(--text); cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled) { border-color: var(--sub); } button:disabled { opacity: .5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  @media (prefers-color-scheme: dark) { button.primary { color: #10201c; } }
+  button.on { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); }
+  button.quiet { border-color: transparent; background: transparent; color: var(--sub); font-weight: 500; padding: 6px 8px; }
+  button.danger { border-color: transparent; background: transparent; color: var(--danger); font-weight: 500; padding: 6px 8px; margin-left: auto; }
+  button.small { font-size: 13px; padding: 5px 10px; }
+  nav.tabs { display: flex; gap: 4px; margin-top: 12px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  nav.tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--sub); padding: 10px 12px; font-weight: 600; }
+  nav.tabs button.on { color: var(--accent); border-bottom-color: var(--accent); background: none; }
+  nav.tabs .count { font-size: 12px; font-weight: 600; color: var(--sub); margin-left: 4px; }
+  .meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; margin: 8px 0 4px; }
+  .meta dt { color: var(--sub); } .meta dd { margin: 0; }
+  .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--bg); color: var(--sub); margin-left: 6px; vertical-align: 1px; }
+  .status { font-size: 13px; color: var(--sub); margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--line); }
+  .q { border-top: 1px solid var(--line); padding: 12px 0 4px; margin-top: 10px; }
+  .q .text { font-weight: 500; }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 6px; margin-right: 8px; white-space: nowrap;
+         background: var(--accent-weak); color: var(--accent); }
+  .tag.write_more, .tag.reask { background: var(--warn-weak); color: var(--warn); } .tag.imagine { background: var(--violet-weak); color: var(--violet); }
+  .actions { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
+  .pattern { font-size: 16px; font-weight: 600; margin: 6px 0; line-height: 1.5; }
+  .err { background: var(--card); border: 1px solid var(--danger); color: var(--danger); border-radius: 12px; padding: 10px 14px; margin: 12px 0; white-space: pre-wrap; font-size: 14px; }
+  .empty { text-align: center; color: var(--sub); padding: 28px 12px; font-size: 14px; }
+  .noti { display: flex; gap: 10px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--line); } .noti:first-child { border-top: 0; padding-top: 0; }
+  .noti .body { flex: 1; } .noti .when { font-size: 12px; color: var(--sub); }
+  .hide { display: none !important; }
+  ul { margin: 6px 0; padding-left: 20px; } li { margin: 2px 0; }
+  #loginBox { max-width: 420px; margin: 48px auto; }
 </style>
 </head>
 <body>
-<h1>기능 확인용 페이지</h1>
-<p class="note">서버 기능이 어떻게 동작하는지 눌러 보는 곳입니다. <b>실제 앱 화면이 아니고 디자인도 아닙니다.</b>
-기록 입력 칸은 실제 7단계 화면을 줄인 것이고, 여기서 쓴 기록은 확인용 계정에만 쌓입니다.</p>
+<div class="wrap">
+<header class="top">
+  <div class="title">
+    <h1>기능 확인용 페이지</h1><span class="badge">실제 앱 화면 아님</span>
+    <div class="who hide" id="whoBox"><b id="who"></b><button class="quiet small" id="refreshBtn">새로 고침</button><button class="quiet small" id="logoutBtn">계정 바꾸기</button></div>
+  </div>
+  <nav class="tabs hide" id="tabs">
+    <button data-tab="write">기록 쓰기</button><button data-tab="records">내 기록·질문<span class="count" id="cntRecords"></span></button>
+    <button data-tab="analysis">분석</button><button data-tab="noti">알림함<span class="count" id="cntNoti"></span></button>
+  </nav>
+</header>
 
 <div id="error" class="err hide"></div>
 
 <div id="loginBox" class="box">
   <h3>들어가기</h3>
-  <label>비밀번호 (재현에게 받은 것)</label>
+  <p class="note">서버 기능이 어떻게 동작하는지 직접 눌러 보는 곳입니다. 화면 디자인은 실제 앱과 다릅니다.</p>
+  <label>비밀번호 <small>재현에게 받은 것</small></label>
   <input type="password" id="pw" autocomplete="off">
-  <div class="row"><button id="loginBtn">확인</button></div>
+  <div class="row"><button id="loginBtn" class="primary">확인</button></div>
   <div id="accountRow" class="hide">
-    <label>누구로 볼까요? (계정마다 기록이 따로 쌓입니다)</label>
+    <label>누구로 볼까요? <small>계정마다 기록이 따로 쌓입니다</small></label>
     <div class="row" id="accounts"></div>
   </div>
 </div>
 
 <div id="app" class="hide">
-  <p class="row"><b id="who"></b> <button id="logoutBtn">다른 계정으로</button> <button id="refreshBtn">새로 고침</button></p>
-
-  <h2>1. 기록 쓰기</h2>
-  <p class="note">* 표시는 꼭 채워야 합니다. 저장하면 서버가 이 기록으로 질문 4개를 만듭니다.</p>
-  <div class="row"><button id="fillBtn">예시로 채우기</button></div>
-  <div class="box" id="form">
-    <div class="row">
-      <span>상태*</span>
-      <select id="f_status"><option value="done">끝</option><option value="in_progress">진행 중</option></select>
-      <span>분야*</span><select id="f_genre"></select>
-      <span>유형</span><select id="f_type"></select>
+  <section data-tab="write">
+    <h2>기록 쓰기</h2>
+    <p class="note">실제 앱의 7단계 기록 화면을 한 장으로 줄인 것입니다. * 표시는 꼭 채워야 하고, 저장하면 서버가 이 기록으로 질문 4개를 만듭니다.</p>
+    <div class="box" id="form">
+      <div class="row" style="margin-top:0"><button id="fillBtn" class="small">예시로 채우기</button></div>
+      <div class="grid">
+        <div class="field"><span>상태*</span><select id="f_status"><option value="done">끝</option><option value="in_progress">진행 중</option></select></div>
+        <div class="field"><span>분야*</span><select id="f_genre"></select></div>
+        <div class="field"><span>유형</span><select id="f_type"></select></div>
+      </div>
+      <label>활동 이름* <small>2~40자</small></label><input type="text" id="f_name" maxlength="40">
+      <label>역할* <small>2~20자</small></label><input type="text" id="f_role" maxlength="20">
+      <label>기간*</label>
+      <div class="grid"><input type="month" id="f_start" aria-label="시작"><input type="month" id="f_end" aria-label="끝"></div>
+      <label>주로 한 일* <small>1~3개, 쉼표로 구분. 예: 기획, 현장 진행, 홍보</small></label><input type="text" id="f_did">
+      <label>한 일 보강 <small>선택. 위에 적은 일마다 한 줄씩 생깁니다. 80자</small></label><div id="f_notes"></div>
+      <label>조건 <small>선택</small></label>
+      <div class="grid">
+        <div class="field"><small>규모</small><select id="c_scale"></select></div><div class="field"><small>방식</small><select id="c_mode"></select></div>
+        <div class="field"><small>내 역할</small><select id="c_role"></select></div><div class="field"><small>자율성</small><select id="c_auto"></select></div>
+      </div>
+      <label>기억에 남는 상황 <small>최대 2개, 쉼표로 구분. 예: 시간이 부족했다, 의견이 갈렸다</small></label><input type="text" id="f_sit">
+      <label>감정 <small>최대 2개, 쉼표로 구분. 예: 뿌듯함, 지침</small></label><input type="text" id="f_emo">
+      <label>한 줄 <small>100자</small></label><textarea id="f_line" maxlength="100" rows="2"></textarea>
+      <div class="row" style="margin-top:16px"><button id="saveBtn" class="primary">저장</button> <span class="note" id="saveMsg"></span></div>
     </div>
-    <label>활동 이름* (2~40자)</label><input type="text" id="f_name" maxlength="40">
-    <label>역할* (2~20자)</label><input type="text" id="f_role" maxlength="20">
-    <div class="row"><span>기간*</span><input type="month" id="f_start" style="width:auto"> ~ <input type="month" id="f_end" style="width:auto"></div>
-    <label>주로 한 일* (1~3개, 쉼표로 구분. 예: 기획, 현장 진행, 홍보)</label><input type="text" id="f_did">
-    <label>한 일 보강 (선택. 위에 적은 일마다 한 줄씩 생깁니다. 80자)</label><div id="f_notes"></div>
-    <div class="row">
-      <span>규모</span><select id="c_scale"></select><span>방식</span><select id="c_mode"></select>
-      <span>내 역할</span><select id="c_role"></select><span>자율성</span><select id="c_auto"></select>
-    </div>
-    <label>기억에 남는 상황 (최대 2개, 쉼표로 구분. 예: 시간이 부족했다, 의견이 갈렸다)</label><input type="text" id="f_sit">
-    <label>감정 (최대 2개, 쉼표로 구분. 예: 뿌듯함, 지침)</label><input type="text" id="f_emo">
-    <label>한 줄 (100자)</label><textarea id="f_line" maxlength="100" rows="2"></textarea>
-    <div class="row"><button id="saveBtn">저장</button> <span class="note" id="saveMsg"></span></div>
-  </div>
+  </section>
 
-  <h2>2. 내 기록과 질문</h2>
-  <p class="note">질문 종류: <b>더 적어보기</b>(기록에 빠진 내용을 묻는 질문, 답을 적을 수 있음) · <b>해볼 것</b>(내가 고를 수 있는 것을 바꾼 질문) · <b>상상해보기</b>(내가 고를 수 없는 것을 바꾼 질문).
-  다시 만들기는 기록당 24시간에 1번, 그리고 더 적어보기에 답할 때마다 1번 더 됩니다.</p>
-  <div id="experiences"></div>
+  <section data-tab="records">
+    <h2>내 기록과 질문</h2>
+    <p class="note"><b>더 적어보기</b>는 기록에 빠진 내용을 묻는 질문이고 답을 적을 수 있습니다. <b>해볼 것</b>은 내가 고를 수 있는 것을, <b>상상해보기</b>는 내가 고를 수 없는 것을 바꿔 본 질문입니다.
+    다시 만들기는 기록당 24시간에 1번, 더 적어보기에 답할 때마다 1번 더 됩니다.</p>
+    <div id="experiences"></div>
+  </section>
 
-  <h2>3. 분석</h2>
-  <p class="note">기록이 3개(회차 기록 포함)부터 열립니다. 패턴은 기록 2개 이상에서 되풀이된 것만 나옵니다. 새 기록을 쓴 뒤에는 "다시 분석"을 눌러야 반영됩니다.</p>
-  <div class="row"><button id="anaBtn">분석 보기</button> <button id="anaForceBtn">다시 분석</button> <span class="note" id="anaMsg"></span></div>
-  <div id="analysis"></div>
+  <section data-tab="analysis">
+    <h2>분석</h2>
+    <p class="note">기록이 3개(회차 기록 포함)부터 열립니다. 패턴은 기록 2개 이상에서 되풀이된 것만 나옵니다. 새 기록을 쓴 뒤에는 "다시 분석"을 눌러야 반영됩니다.</p>
+    <div class="row"><button id="anaBtn" class="primary">분석 보기</button> <button id="anaForceBtn">다시 분석</button> <span class="note" id="anaMsg"></span></div>
+    <div id="analysis"></div>
+  </section>
 
-  <h2>4. 알림함</h2>
-  <p class="note">실제 푸시는 앱이 있어야 울립니다. 여기서는 알림함에 쌓이는 모양만 봅니다. 기록의 "새 질문 알림 흉내"를 같은 날 여러 번 누르면 알림이 늘지 않고 개수만 오릅니다.</p>
-  <div id="notifications"></div>
+  <section data-tab="noti">
+    <h2>알림함</h2>
+    <p class="note">실제 푸시는 앱이 있어야 울립니다. 여기서는 알림함에 쌓이는 모양만 봅니다. 기록의 "새 질문 알림 흉내"를 같은 날 여러 번 누르면 알림이 늘지 않고 개수만 오릅니다.</p>
+    <div id="notifications"></div>
+  </section>
+</div>
 </div>
 
 <script>
@@ -100,7 +161,7 @@ const ERRORS = { UNAUTHENTICATED: '비밀번호나 계정이 맞지 않아요.',
 let token = null, account = null, password = null, state = null, analysis = null, showAll = false, timer = null;
 const $ = id => document.getElementById(id);
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
-const btn = (text, fn, on) => { const b = el('button', text, on ? 'on' : ''); b.onclick = async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } }; return b; };
+const btn = (text, fn, on, kind) => { const b = el('button', text, [on ? 'on' : '', kind || ''].join(' ').trim()); b.onclick = async () => { b.disabled = true; try { await fn(); } finally { b.disabled = false; } }; return b; };
 const split = s => s.split(',').map(x => x.trim()).filter(Boolean);
 
 function showError(msg) { const e = $('error'); if (!msg) { e.classList.add('hide'); return; } e.textContent = msg; e.classList.remove('hide'); }
@@ -122,6 +183,14 @@ async function api(method, path, body) {
   return data;
 }
 
+// ---------- 탭 ----------
+function showTab(name) {
+  document.querySelectorAll('#app section').forEach(s => s.classList.toggle('hide', s.dataset.tab !== name));
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === name));
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+
 // ---------- 들어가기 ----------
 $('loginBtn').onclick = () => login($('pw').value);
 async function login(pw, as) {
@@ -137,11 +206,12 @@ async function enter(name) {
   // 헤더에는 한글을 못 실어서 URL 인코딩한다
   account = name; token = 'demo:' + encodeURIComponent(password) + ':' + encodeURIComponent(name);
   analysis = null; showAll = false;
-  $('who').textContent = name + ' 계정으로 보는 중';
-  $('loginBox').classList.add('hide'); $('app').classList.remove('hide'); $('analysis').replaceChildren(); $('anaMsg').textContent = '';
+  $('who').textContent = name;
+  $('loginBox').classList.add('hide'); ['app', 'tabs', 'whoBox'].forEach(id => $(id).classList.remove('hide')); $('analysis').replaceChildren(); $('anaMsg').textContent = '';
   await refresh();
+  showTab(state.experiences.length ? 'records' : 'write');
 }
-$('logoutBtn').onclick = () => { token = null; clearTimeout(timer); $('app').classList.add('hide'); $('loginBox').classList.remove('hide'); };
+$('logoutBtn').onclick = () => { token = null; clearTimeout(timer); ['app', 'tabs', 'whoBox'].forEach(id => $(id).classList.add('hide')); $('loginBox').classList.remove('hide'); };
 $('refreshBtn').onclick = () => refresh();
 // 링크 끝에 #key=비밀번호&as=이름 이 있으면 입력 없이 바로 들어간다. # 뒤는 서버로 가지 않아 접속 기록에 남지 않는다
 (() => {
@@ -177,9 +247,10 @@ $('saveBtn').onclick = async () => {
     status: $('f_status').value, activity_name: $('f_name').value, genre: $('f_genre').value, type: $('f_type').value || null, role: $('f_role').value,
     period_start: $('f_start').value, period_end: $('f_end').value || null, did_chips: split($('f_did').value), did_notes: notes, conditions,
     situation_chips: split($('f_sit').value), emotion_chips: split($('f_emo').value), one_liner: $('f_line').value });
-  $('saveMsg').textContent = '저장했어요. 아래 "내 기록과 질문"에서 질문이 만들어지는 걸 볼 수 있어요.';
+  $('saveMsg').textContent = '';
   ['f_name', 'f_role', 'f_did', 'f_sit', 'f_emo', 'f_line'].forEach(id => $(id).value = ''); $('f_notes').replaceChildren();
   await refresh();
+  showTab('records');
 };
 
 // ---------- 내 기록과 질문 ----------
@@ -187,22 +258,24 @@ async function refresh() {
   clearTimeout(timer);
   state = await api('GET', '/v1/demo/state');
   renderExperiences(); renderNotifications();
+  $('cntRecords').textContent = state.experiences.length || ''; $('cntNoti').textContent = state.notifications.length || '';
   // 질문을 만드는 중인 기록이 있으면 3초 뒤 다시 본다 (실제 앱은 question_batch.status 를 본다)
   if (token && state.experiences.some(e => !e.batch || e.batch.status === 'pending')) timer = setTimeout(() => refresh().catch(() => {}), 3000);
 }
 
 function renderExperiences() {
   const root = $('experiences'); root.replaceChildren();
-  if (!state.experiences.length) root.append(el('p', '아직 기록이 없어요. 위에서 하나 써 보세요.', 'note'));
+  if (!state.experiences.length) root.append(el('div', '아직 기록이 없어요. "기록 쓰기" 탭에서 하나 써 보세요.', 'box empty'));
   for (const e of state.experiences) {
     const box = el('div', null, 'box');
-    box.append(el('h3', `${e.activity_name} · ${e.genre} · ${e.role} (${e.status === 'in_progress' ? '진행 중' : '끝'})`));
-    const lines = [`기간 ${e.period_start}${e.period_end ? ' ~ ' + e.period_end : ''}`, '한 일: ' + e.did_chips.map(c => c + (e.did_notes[c] ? `(${e.did_notes[c]})` : '')).join(', ')];
-    const cond = Object.entries(e.conditions).map(([k, v]) => `${k} ${v}`).join(', '); if (cond) lines.push('조건: ' + cond);
-    if (e.situation_chips.length) lines.push('상황: ' + e.situation_chips.join(', '));
-    if (e.emotion_chips.length) lines.push('감정: ' + e.emotion_chips.join(', '));
-    if (e.one_liner) lines.push('한 줄: ' + e.one_liner);
-    box.append(el('div', lines.join(' / '), 'note'));
+    const title = el('h3', e.activity_name); title.append(el('span', e.status === 'in_progress' ? '진행 중' : '끝', 'pill')); box.append(title);
+    box.append(el('div', `${e.genre} · ${e.role} · ${e.period_start}${e.period_end && e.period_end !== e.period_start ? ' ~ ' + e.period_end : ''}`, 'note'));
+    const lines = [['한 일', e.did_chips.map(c => c + (e.did_notes[c] ? ` (${e.did_notes[c]})` : '')).join(', ')]];
+    const cond = Object.entries(e.conditions).map(([k, v]) => `${k} ${v}`).join(', '); if (cond) lines.push(['조건', cond]);
+    if (e.situation_chips.length) lines.push(['상황', e.situation_chips.join(', ')]);
+    if (e.emotion_chips.length) lines.push(['감정', e.emotion_chips.join(', ')]);
+    if (e.one_liner) lines.push(['한 줄', e.one_liner]);
+    const meta = el('dl', null, 'meta'); lines.forEach(([k, v]) => meta.append(el('dt', k), el('dd', v))); box.append(meta);
     if (e.logs.length) {
       const ul = el('ul'); e.logs.forEach(l => ul.append(el('li', `회차 기록 ${l.log_date} · ${l.situation_chips.join(', ')} · ${l.emotion_chips.join(', ')}${l.one_liner ? ' · ' + l.one_liner : ''}`)));
       box.append(ul);
@@ -214,41 +287,43 @@ function renderExperiences() {
     else if (b && b.status === 'failed') status = b.failure_reason === 'connection' ? '질문을 만들지 못했어요 (연결 문제). 다시 시도할 수 있어요.' : '질문을 만들지 못했어요 (AI 쪽 문제). 다시 눌러도 같을 수 있어요.';
     else if (b && b.no_new) status = '새로 만들 질문이 없어요. (이전 질문을 그대로 둡니다)';
     else if (b) status = `질문 ${e.questions.length}개`;
-    box.append(el('p', status + (b && b.model ? `  · ${b.generation}번째 생성, 모델 ${b.model}, 프롬프트 ${b.prompt_version || '-'}` : ''), 'note'));
+    box.append(el('p', status + (b && b.model ? ` · ${b.generation}번째 생성 · 모델 ${b.model} · 프롬프트 ${b.prompt_version || '-'}` : ''), 'status'));
 
     for (const q of e.questions) {
       const row = el('div', null, 'q');
-      const head = el('div'); head.append(el('span', QTYPE[q.type] || q.type, 'tag'), el('span', q.text));
+      const head = el('div'); head.append(el('span', QTYPE[q.type] || q.type, 'tag ' + q.type), el('span', q.text, 'text'));
       if (q.is_done) head.append(el('span', ' (이미 해본 것)', 'note'));
       row.append(head);
       if (q.type === 'write_more') {
         if (q.answer) row.append(el('div', '내 답: ' + q.answer, 'note'));
         else {
           const line = el('div', null, 'row'), input = el('input'); input.type = 'text'; input.maxLength = 80; input.placeholder = '한 줄로 적기 (80자, 안 적어도 됨)'; input.style.flex = '1';
+          input.style.minWidth = '0'; line.style.flexWrap = 'nowrap';
           line.append(input, btn('답 저장', async () => { await api('POST', `/v1/questions/${q.id}/answer`, { text: input.value }); await refresh(); }));
           row.append(line);
         }
       } else {
         const line = el('div', null, 'row');
-        line.append(el('span', '어디서 나왔나: ' + q.source, 'note'),
-                    btn(q.saved ? '담김 (누르면 빼기)' : '담기', async () => { await api('POST', `/v1/demo/questions/${q.id}/save`, { saved: !q.saved }); await refresh(); }, q.saved));
+        const src = el('span', '출처: ' + q.source, 'note'); src.style.flex = '1';
+        line.append(src, btn(q.saved ? '★ 담김' : '☆ 담기', async () => { await api('POST', `/v1/demo/questions/${q.id}/save`, { saved: !q.saved }); await refresh(); }, q.saved, 'small'));
         row.append(line);
       }
       box.append(row);
     }
 
-    const actions = el('div', null, 'row');
-    actions.append(btn('질문 다시 만들기', async () => { await api('POST', '/v1/questions/regenerate', { experience_id: e.id }); await refresh(); }));
-    if (b && b.status === 'failed' && b.failure_reason === 'connection') actions.append(btn('다시 시도', async () => { await api('POST', '/v1/questions/retry', { experience_id: e.id }); await refresh(); }));
-    actions.append(btn('새 질문 알림 흉내', async () => { await api('POST', `/v1/demo/experiences/${e.id}/fake-question-notification`); await refresh(); }));
-    actions.append(btn('기록 삭제', async () => { await api('DELETE', `/v1/demo/experiences/${e.id}`); await refresh(); }));
+    const actions = el('div', null, 'row actions');
+    actions.append(btn('질문 다시 만들기', async () => { await api('POST', '/v1/questions/regenerate', { experience_id: e.id }); await refresh(); }, false, 'small'));
+    if (b && b.status === 'failed' && b.failure_reason === 'connection') actions.append(btn('다시 시도', async () => { await api('POST', '/v1/questions/retry', { experience_id: e.id }); await refresh(); }, false, 'small'));
+    actions.append(btn('새 질문 알림 흉내', async () => { await api('POST', `/v1/demo/experiences/${e.id}/fake-question-notification`); await refresh(); }, false, 'small'));
+    actions.append(btn('기록 삭제', async () => { await api('DELETE', `/v1/demo/experiences/${e.id}`); await refresh(); }, false, 'danger small'));
     box.append(actions);
 
     if (e.status === 'in_progress') {
       const line = el('div', null, 'row'), sit = el('input'), emo = el('input'), one = el('input');
-      [sit, emo, one].forEach(i => { i.type = 'text'; i.style.flex = '1'; });
+      [sit, emo, one].forEach(i => { i.type = 'text'; i.style.flex = '1 1 140px'; });
       sit.placeholder = '상황 1~2개 (쉼표)'; emo.placeholder = '감정 1개'; one.placeholder = '한 줄 (선택)'; one.maxLength = 100;
-      line.append(el('span', '회차 기록 추가:'), sit, emo, one, btn('추가', async () => {
+      const cap = el('span', '회차 기록 추가', 'note'); cap.style.flex = '1 0 100%';
+      line.append(cap, sit, emo, one, btn('추가', async () => {
         await api('POST', `/v1/demo/experiences/${e.id}/logs`, { situation_chips: split(sit.value), emotion_chip: emo.value, one_liner: one.value }); await refresh(); }));
       box.append(line);
     }
@@ -271,18 +346,18 @@ $('anaForceBtn').onclick = () => loadAnalysis(true);
 
 function renderAnalysis() {
   const root = $('analysis'), a = analysis; root.replaceChildren();
-  if (a.locked) { root.append(el('p', `지금 기록이 ${a.record_count}개예요. ${3 - a.record_count}개 더 기록하면 열려요.`)); return; }
+  if (a.locked) { root.append(el('div', `지금 기록이 ${a.record_count}개예요. ${3 - a.record_count}개 더 기록하면 열려요.`, 'box empty')); return; }
   const info = [`기록 ${a.record_count}개로 분석했어요.`];
   if (a.has_new_records) info.push('그 뒤로 기록이 바뀌었어요. "다시 분석"을 누르면 반영돼요.');
   if (a.reask_count) info.push(`다시 확인할 패턴이 ${a.reask_count}개 있어요.`);
-  root.append(el('p', info.join(' ')));
-  if (!a.patterns.length) root.append(el('p', '되풀이되는 것을 아직 찾지 못했어요. (억지로 만들지 않습니다)', 'note'));
+  root.append(el('p', info.join(' '), 'note'));
+  if (!a.patterns.length) root.append(el('div', '되풀이되는 것을 아직 찾지 못했어요. (억지로 만들지 않습니다)', 'box empty'));
   const shown = showAll ? a.patterns : a.patterns.slice(0, 3);      // 처음 3개, 더보기로 5개 (기능명세서 15장)
   for (const p of shown) {
     const box = el('div', null, 'box');
-    if (p.reask === 'more_evidence') box.append(el('p', '기록이 늘었어요. 다시 확인해볼까요?', 'tag'));
-    if (p.reask === 'repeated') box.append(el('p', `새 기록 ${p.reask_new_count}개에서도 이런 선택이 보여요.`, 'tag'));
-    box.append(el('h3', p.edited_text || p.text));
+    if (p.reask === 'more_evidence') box.append(el('span', '기록이 늘었어요. 다시 확인해볼까요?', 'tag reask'));
+    if (p.reask === 'repeated') box.append(el('span', `새 기록 ${p.reask_new_count}개에서도 이런 선택이 보여요.`, 'tag reask'));
+    box.append(el('p', p.edited_text || p.text, 'pattern'));
     if (p.edited_text) box.append(el('div', 'AI 가 처음 낸 문장: ' + p.text, 'note'));
     box.append(el('div', `근거 ${p.evidence.length}개: ` + p.evidence.map(ev => ev.activity_name + (ev.log_date ? ` ${ev.log_date} 회차` : '')).join(', '), 'note'));
     if (p.feedback === 'later' && !p.reask) box.append(el('div', '확인 중 (아직 모르겠어요를 눌렀어요. 근거가 늘면 다시 물어요)', 'note'));
@@ -293,7 +368,7 @@ function renderAnalysis() {
         if (value !== 'edit') return send(value);
         if (edit.classList.contains('hide')) { edit.classList.remove('hide'); edit.value = p.edited_text || p.text; edit.focus(); return; }
         await send('edit', edit.value);
-      }, p.feedback === value));
+      }, p.feedback === value, 'small'));
     }
     line.append(edit); box.append(line); root.append(box);
   }
@@ -309,11 +384,13 @@ function renderAnalysis() {
 // ---------- 알림함 ----------
 function renderNotifications() {
   const root = $('notifications'); root.replaceChildren();
-  if (!state.notifications.length) { root.append(el('p', '알림이 없어요.', 'note')); return; }
-  const ul = el('ul');
+  if (!state.notifications.length) { root.append(el('div', '알림이 없어요.', 'box empty')); return; }
+  const ul = el('div', null, 'box');
   for (const n of state.notifications) {
     const when = new Date(n.created_at).toLocaleString('ko-KR');
-    ul.append(el('li', `${(NTYPE[n.type] || (() => '새 알림'))(n)} · ${when} · ${n.pushed_at ? '푸시 보냄' : '푸시 안 보냄(알림함에만)'}`));
+    const row = el('div', null, 'noti'), body = el('div', null, 'body');
+    body.append(el('div', (NTYPE[n.type] || (() => '새 알림'))(n)), el('div', `${when} · ${n.pushed_at ? '푸시 보냄' : '푸시 안 보냄 (알림함에만)'}`, 'when'));
+    row.append(body); ul.append(row);
   }
   root.append(ul);
 }
