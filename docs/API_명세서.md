@@ -234,20 +234,26 @@ RLS: 본인 select 만. 쓰기는 서버만.
 | grouped_key | text | 묶음 키 `종류:경험id:KST날짜`. `(user_id, grouped_key)` 유니크 |
 | count | int | 묶음 개수. 같은 키로 또 생기면 **행을 새로 만들지 않고 +1** ("질문 1→3개"). 푸시는 첫 건만 (지은 11/14) |
 | read | bool | **앱이 바꿀 수 있는 유일한 컬럼** |
-| pushed_at | timestamptz | 실제 푸시 시각. 방해 금지(22~08 KST)에 생긴 건 null 로 쌓였다가 **08:00 에 "밤사이 알림 N개" 하나로** 푸시 |
-| push_checked_at | timestamptz | 서버가 푸시를 보낼지 판단을 끝낸 시각. null = 아직 안 봄(방해 금지로 미룬 것 포함). 종류를 꺼 뒀거나 기기가 없어 안 보낸 알림은 이 값만 있고 `pushed_at` 은 null. 앱은 안 써도 됨 `[v0.3.4]` |
+| pushed_at | timestamptz | 실제 푸시 시각. ~~방해 금지(22~08 KST)에 생긴 건 null 로 쌓였다가 08:00 에 "밤사이 알림 N개" 하나로 푸시~~ 방해 금지 시간은 없앰 (11/24 회의) `[v0.3.7]` |
+| push_checked_at | timestamptz | 서버가 푸시를 보낼지 판단을 끝낸 시각. null = 아직 안 봄(저녁 6시 푸시를 기다리는 것 포함). 분류를 꺼 뒀거나 기기가 없어 안 보낸 알림은 이 값만 있고 `pushed_at` 은 null. 앱은 안 써도 됨 `[v0.3.4]` |
 | created_at | timestamptz | |
 
 `[v0.3.4]` 구현하면서 채움 (이슈 #18)
 - 행은 DB 함수 `notification_add(user, type, payload, grouped_key, bump)` 로만 만든다 (트리거와 FastAPI 공용, 앱은 실행 못 함). 묶음 키가 같으면 `count + 1`, `payload` 는 가장 최근 것으로, `read` 는 다시 `false`
 - 종류별 묶음: `new_question` 은 같은 카드·같은 날 한 행, `answer` 는 개별, `related_found`·`helpful`·`saved` 는 하루 한 행, `reminder` 는 활동·날짜당 한 번 (기획 "1117 수정" 알림 표)
-- 푸시 `data`: 한 건이면 `{ "notification_id", "type", "payload" }` (payload 는 행의 것 그대로), 아침 묶음이면 `{ "type": "digest", "count": N }` → 앱은 알림함으로
-- 푸시 문구(서버가 만듦): 「활동명」에 질문이 왔어요 / 남긴 질문에 답변이 달렸어요 / 담은 질문에 맞는 경험이 N개 생겼어요 / 누군가 내 경험이 도움이 됐다고 남겼어요 / 「활동명」 이번 주 기록을 남겨볼까요? / 밤사이 알림 N개가 있어요. 알림함 화면 문구는 앱이 `type`·`count`·`payload` 로 만듦
+- 푸시 `data`: `{ "notification_id", "type", "payload" }` (payload 는 행의 것 그대로). ~~아침 묶음이면 `{ "type": "digest", "count": N }`~~ 아침 묶음 푸시는 없앰 `[v0.3.7]`
+- 푸시 문구(서버가 만듦): 「활동명」에 질문이 왔어요 / 남긴 질문에 답변이 달렸어요 / 담은 질문에 맞는 경험이 N개 생겼어요 / 누군가 내 경험이 도움이 됐다고 남겼어요 / 「활동명」 이번 주 기록을 남겨볼까요? / ~~밤사이 알림 N개가 있어요~~. 알림함 화면 문구는 앱이 `type`·`count`·`payload` 로 만듦
 - 푸시는 1분마다 서버가 밀린 알림을 보고 보냄. 등록된 기기 전부에. 하루 넘게 밀린 것은 안 보냄
-- 방해 금지에 생긴 알림이 2개 이상이면 방해 금지가 끝난 뒤 하나로, 1개면 그 알림 그대로 보냄
-- `notification_setting.types` 에서 끈 종류: **푸시만 안 보내고 알림함에는 쌓임** `TODO(기획)`. `push_enabled: false` 도 같음
+- ~~방해 금지에 생긴 알림이 2개 이상이면 방해 금지가 끝난 뒤 하나로, 1개면 그 알림 그대로 보냄~~
+- `[v0.3.7]` 11/24 회의·기능명세서 16장 반영 (이슈 #22)
+  - **방해 금지 시간 없음.** 밤에 생긴 알림도 바로 푸시한다. `quiet_start`·`quiet_end` 칸은 남아 있지만 서버가 읽지 않는다
+  - **켜고 끄는 단위는 6가지 분류** (1.5 의 `types`). 분류를 끄면 그 분류의 푸시를 안 보낸다
+  - **내 경험이 닿은 곳(`helpful`, `saved`)의 푸시는 저녁 6시(한국 시간).** 알림함에는 생긴 즉시 쌓이고 푸시만 그 뒤 처음 오는 18:00 에 나간다 (6시를 넘겨 생긴 것은 다음 날 6시). 추천 경험(`related_found`)은 그대로 오전 9시
+  - 푸시에 `collapseId`·`tag` (= `notification_id`) 를 싣는다. 같은 값으로 다시 보내면 휴대폰에 떠 있는 알림이 바뀐다 (iOS 는 `collapseId`, 안드로이드는 `tag`). 지금은 묶음의 첫 건만 보내므로 실제로 바꿔 끼우는 일은 없다
+  - 안드로이드 알림 채널: 서버는 `channelId` 를 아직 싣지 않는다. 앱이 채널 6개(분류 이름과 같은 id)를 만든 뒤에 켠다. 없는 채널로 보내면 알림이 안 뜬다
+- `notification_setting.types` 에서 끈 분류: **푸시만 안 보내고 알림함에는 쌓임** `TODO(기획)`. `push_enabled: false` 도 같음
 - `related_found` `[v0.3.5]`: 매일 한국 시간 9시대에 서버가 사용자당 한 행을 만든다. `count` = 새로 붙은 경험 수 (경험 하나가 질문 여러 개에 맞아도 한 번, 지금 볼 수 없는 카드와 내 경험은 안 셈), `payload.question_ids` = 새 경험이 붙은 질문들. 9시 뒤에 붙은 것은 다음 날 아침. 한 번 알린 질문은 사용자가 안 열어 봐도 다시 알리지 않는다 (`question.related_notified_at`, 서버만 씀)
-- `reminder` `[v0.3.5]`: `notification_setting.reminders` 에 사용자가 넣은 활동만, 고른 요일·시간(한국 시간)에 한 행. `payload` 는 `{ "experience_id" }`. 진행 중(`in_progress`)인 활동만, 활동·날짜당 한 번. `types.reminder` 가 `false` 면 알림함에도 안 만든다. 그 날짜의 회차 기록이 이미 있으면 건너뜀 `TODO(기획)`. 예정 시각을 60분 넘기면 그날은 건너뜀. 예정 시각이 방해 금지 시간 안이면 알림함에만 쌓고 푸시는 안 보냄 `TODO(기획)`
+- `reminder` `[v0.3.5]`: `notification_setting.reminders` 에 사용자가 넣은 활동만, 고른 요일·시간(한국 시간)에 한 행. `payload` 는 `{ "experience_id" }`. 진행 중(`in_progress`)인 활동만, 활동·날짜당 한 번. `types.reminder` 가 `false` 면 알림함에도 안 만든다. ~~그 날짜의 회차 기록이 이미 있으면 건너뜀~~ **그 주(월요일 시작 `TODO(기획)`)에 회차 기록이 이미 있으면 건너뜀** `[v0.3.7]`. 예정 시각을 60분 넘기면 그날은 건너뜀. ~~예정 시각이 방해 금지 시간 안이면 알림함에만 쌓고 푸시는 안 보냄~~. 분류를 꺼도 `reminders` 의 활동별 설정은 그대로 남고, 활동이 끝나거나 지워지면 보내지 않는다 (서버는 `reminders` 의 키를 지우지 않는다)
 - Q&A 트리거 `notify_on_qa`: 내 카드에 내가 남긴 질문, 서로 차단한 사이는 알림 없음. `qa` 가 실제 테이블이 되면 붙임 (지금은 함수만 있음)
 
 RLS: 본인 select, `read`만 update (컬럼 권한). 생성은 서버(트리거 + FastAPI). 30일 지난 건 cron 삭제. 앱은 모르는 `type`이 오면 일반 알림으로 표시. 알림이 가리키는 글이 없어져도 알림은 남김 → 앱이 "지금은 볼 수 없는 글이에요". 차단한 사람의 활동으로는 알림을 만들지 않음. 익명이라 문구에 닉네임 안 넣음.
@@ -258,8 +264,8 @@ RLS: 본인 select, `read`만 update (컬럼 권한). 생성은 서버(트리거
 |---|---|
 | user_id | uuid PK |
 | push_enabled | bool |
-| types | jsonb — 유형별 on/off |
-| quiet_start, quiet_end | time — 기본 22:00 / 08:00 (Asia/Seoul 고정) |
+| types | jsonb — ~~유형별 on/off~~ **분류별 on/off** `[v0.3.7]`. 키 6개: `qa`(질문/답변 = new_question·answer), `recommend`(추천 경험 = related_found), `reach`(내 경험이 닿은 곳 = helpful·saved), `reminder`(진행 중 활동 리마인드), `draft`(미뤄둔 경험), `verification`(증빙). 값이 `false` 면 끔, 없는 키는 켬. 예전처럼 종류 이름(`"answer": false`)으로 끈 값도 서버가 계속 받는다 |
+| quiet_start, quiet_end | time — ~~기본 22:00 / 08:00 (Asia/Seoul 고정)~~ 방해 금지 시간을 없애 서버가 안 읽는다. 칸은 남겨 둠 `[v0.3.7]` |
 | reminders | jsonb — `{ experience_id: { days: [...], time: "21:00" } }`. `days` 는 요일 숫자 **0=일, 1=월 … 6=토** (JS `getDay()` 와 같음. 7 도 일요일로 받음), `time` 은 한국 시간 `HH:MM`. 리마인드를 끄려면 그 활동의 키를 지운다 `[v0.3.5]` |
 
 RLS: 본인 전부. *v0.1의 `expo_push_token` 삭제 → 1.6으로.*
@@ -640,9 +646,9 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 - 경험 공개 확정 시 임베딩 생성 — `experience` UPDATE 중 `published_at`·`visibility` 가 바뀔 때만 DB 웹훅 → `POST /v1/internal/experience-published`. 비공개로 내릴 때도 같은 주소 (서버가 `visibility` 보고 분기: 비공개면 그 카드를 담은 `related_cache` 재계산). 웹훅 재전송이 없어 서버 sweep 이 `visibility <> 'private' and embedding is null` 을 보충 `[v0.3.1]`
 - 공개된 경험 삭제 시 — `experience` DELETE 중 지워진 행이 공개(`visibility <> 'private'`)였을 때만 DB 웹훅 → 같은 주소 `POST /v1/internal/experience-published`, `type: "DELETE"`. Supabase 기본 모양 그대로라 `record` 는 `null`, 서버는 `old_record.id` 만 읽는다. 처리는 비공개 내림과 같음 (그 카드를 담은 `related_cache` 재계산). 웹훅이 빠져도 조회할 때 사라진 카드는 걸러지고 다시 계산됨 `[v0.3.1]`
 - 새 공개 카드 → ~~`saved = true`인 질문들~~ **`notify_on_related` 가 켜진 질문**과 매칭 → `related_new` 켬 → **매일 09:00 KST** 사용자당 `related_found` 알림 하나 (경험 수는 질문 여러 개에 맞아도 한 번만 셈, 내 경험이 내 질문에 맞는 건 제외) `[v0.3.1]`
-- 방해 금지(22~08)에 쌓인 알림 → 08:00 에 하나로 묶어 푸시 `[v0.3.1]`. 구현: 1분마다 `push_checked_at is null` 인 알림을 보고, 그 사람의 방해 금지 시간이면 그대로 두고 아니면 보냄 (그래서 묶음 푸시는 08:00~08:01 사이). 사용자가 방해 금지 시간을 바꿨으면 그 시간 기준 `[v0.3.4]`
+- ~~방해 금지(22~08)에 쌓인 알림 → 08:00 에 하나로 묶어 푸시~~ 없앰 `[v0.3.7]`. 내 경험이 닿은 곳은 18:00 에 푸시. 예전 구현: 1분마다 `push_checked_at is null` 인 알림을 보고, 그 사람의 방해 금지 시간이면 그대로 두고 아니면 보냄 (그래서 묶음 푸시는 08:00~08:01 사이). 사용자가 방해 금지 시간을 바꿨으면 그 시간 기준 `[v0.3.4]`
 - 5분마다 sweep: `question_batch` 없는 경험 → 질문 생성 `[v0.3.1]`
-- 리마인드 푸시 cron (Asia/Seoul 기준, 방해 금지 제외). 구현: 1분마다 `notification_setting.reminders` 를 보고 차례가 된 활동에 `reminder` 알림을 만든다 `[v0.3.5]`
+- 리마인드 푸시 cron (Asia/Seoul 기준). 구현: 1분마다 `notification_setting.reminders` 를 보고 차례가 된 활동에 `reminder` 알림을 만든다 `[v0.3.5]`
 - 30일 지난 알림 삭제, 14일 미답변 Q&A를 `no_answer`로 변경 (삭제 안 함) `[수정 #3]`
 - Expo 전송 결과 `DeviceNotRegistered` → 토큰 삭제
 - *v0.1의 "임시저장 2일째 알림" 삭제 — 앱 로컬 알림으로*
@@ -687,6 +693,7 @@ preview 없이 바로 `private`. 카드·Q&A 비노출. Q&A 데이터 보존 여
 
 ## 변경 이력
 
+- v0.3.7 (11/27) — 알림을 11/24 회의·기능명세서 16장에 맞춤 (이슈 #22). 방해 금지 시간과 아침 묶음 푸시 없앰, `notification_setting.types` 를 6가지 분류로, 내 경험이 닿은 곳(`helpful`·`saved`) 푸시는 18:00, 리마인드는 그 주에 회차 기록이 있으면 건너뜀, 푸시에 `collapseId`·`tag`. DB 는 안 바뀜
 - v0.3.5 (11/23) — 알림 나머지 (이슈 #18). 09:00 `related_found`, 리마인드, `reminders.days` 요일 숫자 정의, `question.related_notified_at` (DB 는 `005` 에 추가)
 - v0.3.4 (11/22) — 알림 구현 기준 갱신 (이슈 #18). `notification.push_checked_at`, DB 함수 `notification_add`, Q&A 트리거 함수 수정(같은 날 두 번째 질문에서 유니크 충돌), 푸시 `data`·문구, 끈 종류는 푸시만 안 보냄. DB 는 `005_jaehyun_notification.sql`. 관련 경험 09:00 알림과 리마인드는 다음 커밋
 - v0.3.3 (11/22) — 분석 응답 처리 11/16 기획 변경 반영 (기능명세서 15장, 이슈 #16). `POST /analysis` 패턴을 근거 수 순으로, `reask`·`reask_new_count`·`reask_count` 추가. `later` 는 다시 분석해도 남음('확인 중'), `no` 는 조건이 맞으면 한 번 다시 보여주고 또 `no` 면 영구 제외. `analysis_pattern` 컬럼 6개 추가. DB 는 `004_jaehyun_analysis_1116.sql`. `criteria`(선택 기준 문장)는 다음 PR

@@ -104,9 +104,10 @@ LLM_DISABLE_THINKING=0 LLM_DETERMINISTIC=0 LLM_TIMEOUT_S=90 .venv/bin/python -m 
 ## 알림 (6단계, 진행 중 — 이슈 #18)
 - 앱은 알림함을 `notification` 테이블에서 직접 읽는다. 서버는 행을 만들고 푸시를 보낸다. 서버 엔드포인트는 없다
 - 만들기: `app/notifications/service.py` `add()` → DB 함수 `notification_add`. 묶음 키(`종류:경험id:한국날짜`)가 같으면 행을 새로 만들지 않고 `count` 만 올린다. Q&A 알림은 DB 트리거 함수 `notify_on_qa` 가 같은 함수를 부른다 (트리거는 `qa` 가 실제 테이블이 되면 붙인다)
-- 푸시: `scheduler.run_forever` 가 1분마다 `dispatch_pending()` 을 돌린다. 아직 판단하지 않은 알림(`push_checked_at is null`)을 사람별로 모아, 방해 금지 시간이면 그대로 두고 아니면 Expo Push 로 보낸다. 묶음 행은 처음 만들어질 때만 걸리니 첫 건만 푸시된다
-- 방해 금지(기본 22~08시, 한국 시간, 사용자가 바꾼 값 우선)에 생긴 알림이 2개 이상 밀려 있으면 "밤사이 알림 N개가 있어요" 하나로 보낸다
-- 푸시를 전체로 껐거나, 그 종류를 껐거나, 기기가 없으면 보내지 않고 본 것으로만 표시한다 (`pushed_at` 은 null). Expo 가 `DeviceNotRegistered` 를 주면 그 토큰을 지운다. Expo 에 못 닿으면 그대로 두고 다음 차례에 다시 본다. 하루 넘게 밀린 것은 보내지 않는다
+- 푸시: `scheduler.run_forever` 가 1분마다 `dispatch_pending()` 을 돌린다. 아직 판단하지 않은 알림(`push_checked_at is null`)을 사람별로 모아 Expo Push 로 보낸다. 묶음 행은 처음 만들어질 때만 걸리니 첫 건만 푸시된다
+- 방해 금지 시간은 없다 (11/24 회의). 내 경험이 닿은 곳(`helpful`, `saved`)만 생긴 즉시가 아니라 저녁 6시에 푸시한다 (`constants.PUSH_FIXED_HOUR`)
+- 켜고 끄는 단위는 6가지 분류다 (`constants.NOTIFICATION_CATEGORIES`, `service.type_on`). 안드로이드 채널은 앱이 채널을 만든 뒤 `PUSH_ANDROID_CHANNELS` 를 켠다
+- 푸시를 전체로 껐거나, 그 분류를 껐거나, 기기가 없으면 보내지 않고 본 것으로만 표시한다 (`pushed_at` 은 null). Expo 가 `DeviceNotRegistered` 를 주면 그 토큰을 지운다. Expo 에 못 닿으면 그대로 두고 다음 차례에 다시 본다. 하루 넘게 밀린 것은 보내지 않는다
 - 문구는 `text.py` (기획 "1117 수정" 표의 예시 그대로, 닉네임 없음)
 - 환경변수: `EXPO_PUSH_URL`(기본 Expo 주소), `EXPO_ACCESS_TOKEN`(Expo 에서 push security 를 켰을 때만)
 - 아직 안 한 것: 오전 9시 관련 경험 알림, 리마인드. 실제 Expo 로는 한 번도 안 보내 봤다 (테스트는 가짜 Expo)
