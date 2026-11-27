@@ -11,8 +11,8 @@ from test_integration_embedding import DB, _reachable
 pytestmark = pytest.mark.skipif(not _reachable(), reason="로컬 DB 없음")
 KST = ZoneInfo("Asia/Seoul")
 NOON = datetime(2026, 11, 23, 12, 0, tzinfo=KST)       # 낮
-NIGHT = datetime(2026, 11, 23, 23, 30, tzinfo=KST)     # 방해 금지 안
-MORNING = datetime(2026, 11, 24, 8, 0, 30, tzinfo=KST) # 방해 금지가 끝난 직후
+NIGHT = datetime(2026, 11, 23, 23, 30, tzinfo=KST)     # 밤 (11/24 회의로 방해 금지 시간은 없다)
+SIX_PM = datetime(2026, 11, 23, 18, 0, 30, tzinfo=KST) # 내 경험이 닿은 곳 푸시가 나가는 시각
 
 
 class FakeExpo:
@@ -108,6 +108,7 @@ def test_same_card_same_day_is_one_row_and_only_the_first_is_pushed(env):
     [m] = fake.sent
     assert m["to"] == "ExponentPushToken[a]" and m["body"] == "「과제전 시상식 준비」에 질문이 왔어요"
     assert m["data"] == {"notification_id": str(nid), "type": "new_question", "payload": {"experience_id": str(eid), "qa_id": "q1"}}
+    assert m["collapseId"] == m["tag"] == str(nid) and "channelId" not in m, "바꿔 끼울 표시는 넣고, 채널은 앱이 만들기 전이라 안 싣는다"
     assert noti(nid)["pushed_at"] is not None
 
     db(lambda c: c.execute("update notification set read = true where id = $1", nid))
@@ -120,23 +121,29 @@ def test_same_card_same_day_is_one_row_and_only_the_first_is_pushed(env):
     assert other_day != nid, "다른 날은 다른 행"
 
 
-def test_quiet_hours_hold_then_one_digest_in_the_morning(env):
+def test_night_notifications_go_out_right_away_and_each_on_its_own(env):
     client, fake = env
     uid = new_user()
     a = add_noti(uid, "answer", {"qa_id": "q1"}, NIGHT)
-    b = add_noti(uid, "answer", {"qa_id": "q2"}, NIGHT + timedelta(hours=3))
-    c = add_noti(uid, "helpful", {}, NIGHT + timedelta(hours=4))
-    assert dispatch(client, NIGHT + timedelta(hours=5)) == {"sent": 0, "checked": 0, "held": 3}
-    assert fake.sent == [] and noti(a)["push_checked_at"] is None, "알림함에만 쌓인다"
-    assert dispatch(client, MORNING) == {"sent": 1, "checked": 3, "held": 0}
-    assert fake.sent[0]["body"] == "밤사이 알림 3개가 있어요" and fake.sent[0]["data"] == {"type": "digest", "count": 3}
-    assert all(noti(x)["pushed_at"] is not None for x in (a, b, c))
+    b = add_noti(uid, "new_question", {"qa_id": "q2"}, NIGHT)
+    db(lambda c: c.execute("insert into notification_setting (user_id, quiet_start, quiet_end) values ($1, '22:00', '08:00')", uid))
+    assert dispatch(client, NIGHT + timedelta(minutes=1)) == {"sent": 2, "checked": 2, "held": 0}, "방해 금지 칸에 값이 있어도 안 본다"
+    assert sorted(m["body"] for m in fake.sent) == ["남긴 질문에 답변이 달렸어요", "내 경험에 질문이 왔어요"]
+    assert all(noti(x)["pushed_at"] is not None for x in (a, b))
 
-    # 밤사이 알림이 하나뿐이면 묶지 않고 그대로 보낸다
-    lone = new_user("ExponentPushToken[b]")
-    add_noti(lone, "answer", {"qa_id": "q9"}, NIGHT)
-    dispatch(client, MORNING)
-    assert fake.sent[-1]["to"] == "ExponentPushToken[b]" and fake.sent[-1]["body"] == "남긴 질문에 답변이 달렸어요"
+
+def test_reach_notifications_are_pushed_at_six_pm(env):
+    client, fake = env
+    uid = new_user()
+    h = add_noti(uid, "helpful", {}, NOON)
+    s_ = add_noti(uid, "saved", {}, NOON + timedelta(hours=1))
+    late = add_noti(uid, "helpful", {}, SIX_PM + timedelta(hours=1))                # 6시를 넘겨 생긴 것은 다음 날 6시
+    assert dispatch(client, NOON + timedelta(hours=2)) == {"sent": 0, "checked": 0, "held": 3}
+    assert fake.sent == [] and noti(h)["push_checked_at"] is None, "알림함에는 있고 푸시만 기다린다"
+    assert dispatch(client, SIX_PM + timedelta(hours=1, minutes=1)) == {"sent": 2, "checked": 2, "held": 1}
+    assert sorted(m["body"] for m in fake.sent) == ["누군가 내 경험이 도움이 됐다고 남겼어요", "오늘 1명이 내 경험을 담았어요"]
+    assert noti(h)["pushed_at"] is not None and noti(s_)["pushed_at"] is not None and noti(late)["push_checked_at"] is None
+    assert dispatch(client, SIX_PM + timedelta(days=1))["sent"] == 1 and noti(late)["pushed_at"] is not None
 
 
 def test_user_settings_decide_whether_a_push_goes_out(env):
@@ -145,23 +152,26 @@ def test_user_settings_decide_whether_a_push_goes_out(env):
     db(lambda c: c.execute("insert into notification_setting (user_id, push_enabled) values ($1, false)", off))
     n_off = add_noti(off, "answer", {}, NOON)
 
-    picky = new_user("ExponentPushToken[picky]")      # 답변 알림만 끔, 방해 금지는 낮 11~13시로 바꿈
-    db(lambda c: c.execute("insert into notification_setting (user_id, types, quiet_start, quiet_end) "
-                           "values ($1, '{\"answer\": false}', '11:00', '13:00')", picky))
-    n_answer = add_noti(picky, "answer", {}, NOON - timedelta(hours=2))
-    n_helpful = add_noti(picky, "helpful", {}, NOON - timedelta(hours=2))
+    picky = new_user("ExponentPushToken[picky]")      # 질문/답변 분류만 끔
+    db(lambda c: c.execute("insert into notification_setting (user_id, types) values ($1, '{\"qa\": false}')", picky))
+    n_answer = add_noti(picky, "answer", {}, NOON)
+    n_question = add_noti(picky, "new_question", {}, NOON)
+    n_related = add_noti(picky, "related_found", {}, NOON)
+
+    old_style = new_user("ExponentPushToken[old]")    # 예전 방식: 종류 이름으로 끔
+    db(lambda c: c.execute("insert into notification_setting (user_id, types) values ($1, '{\"answer\": false}')", old_style))
+    n_old = add_noti(old_style, "answer", {}, NOON)
 
     nodevice = new_user(device=None)
     n_nodev = add_noti(nodevice, "answer", {}, NOON)
 
-    dispatch(client, NOON)                            # picky 는 지금 방해 금지
-    assert [m["to"] for m in fake.sent] == [] and noti(n_helpful)["push_checked_at"] is None
+    dispatch(client, NOON)
+    assert [(m["to"], m["body"]) for m in fake.sent] == [("ExponentPushToken[picky]", "담은 질문에 맞는 경험이 1개 생겼어요")]
     assert noti(n_off)["push_checked_at"] is not None and noti(n_off)["pushed_at"] is None, "꺼 둔 사람: 알림함에만"
     assert noti(n_nodev)["push_checked_at"] is not None and noti(n_nodev)["pushed_at"] is None, "기기 없음: 알림함에만"
-
-    dispatch(client, NOON + timedelta(hours=1, minutes=1))
-    assert [(m["to"], m["body"]) for m in fake.sent] == [("ExponentPushToken[picky]", "누군가 내 경험이 도움이 됐다고 남겼어요")]
-    assert noti(n_answer)["pushed_at"] is None and noti(n_answer)["push_checked_at"] is not None, "끈 종류는 푸시만 안 보낸다"
+    for n in (n_answer, n_question, n_old):
+        assert noti(n)["pushed_at"] is None and noti(n)["push_checked_at"] is not None, "끈 분류는 푸시만 안 보낸다"
+    assert noti(n_related)["pushed_at"] is not None
 
 
 def test_every_device_gets_it_and_dead_tokens_are_removed(env):
@@ -307,13 +317,11 @@ def test_related_found_skips_cards_the_user_cannot_see(env):
 MON_2100 = datetime(2026, 11, 23, 21, 0, 20, tzinfo=KST)      # 2026-11-23 은 월요일
 
 
-def set_reminder(uid, eid, days, at="21:00", types=None, quiet=("22:00", "08:00")):
-    from datetime import time as _t
-    qs, qe = (_t(*map(int, x.split(":"))) for x in quiet)
+def set_reminder(uid, eid, days, at="21:00", types=None):
     db(lambda c: c.execute(
-        "insert into notification_setting (user_id, reminders, types, quiet_start, quiet_end) values ($1, $2::jsonb, $3::jsonb, $4, $5) "
+        "insert into notification_setting (user_id, reminders, types) values ($1, $2::jsonb, $3::jsonb) "
         "on conflict (user_id) do update set reminders = excluded.reminders, types = excluded.types",
-        uid, json.dumps({str(eid): {"days": days, "time": at}}), json.dumps(types or {}), qs, qe))
+        uid, json.dumps({str(eid): {"days": days, "time": at}}), json.dumps(types or {})))
 
 
 def ongoing(uid, name="주말 카페 알바"):
@@ -342,14 +350,14 @@ def test_reminder_goes_out_once_on_the_chosen_day_and_time(env):
     assert run(client, service.reminders, MON_2100 + timedelta(days=1)) == 0, "화요일은 고르지 않았다"
     assert run(client, service.reminders, MON_2100 + timedelta(days=3)) == 1, "목요일"
 
-    # 방해 금지 시간에 걸린 리마인드는 알림함에만 쌓이고 아침에도 푸시하지 않는다
+    # 밤늦은 시각을 골라도 그 시각에 푸시한다 (방해 금지 없음)
     night = new_user("ExponentPushToken[n]")
     en = ongoing(night)
     set_reminder(night, en, [1], at="23:00")
     assert run(client, service.reminders, MON_2100 + timedelta(hours=2)) == 1
-    dispatch(client, MORNING)
+    dispatch(client, MON_2100 + timedelta(hours=2, minutes=1))
     [row] = reminder_rows(night)
-    assert row["pushed_at"] is None and all(m["to"] != "ExponentPushToken[n]" for m in fake.sent)
+    assert row["pushed_at"] is not None and fake.sent[-1]["to"] == "ExponentPushToken[n]"
 
 
 def test_reminder_is_skipped_when_it_should_not_fire(env):
@@ -361,8 +369,7 @@ def test_reminder_is_skipped_when_it_should_not_fire(env):
     b = new_user(); eb = ongoing(b); set_reminder(b, eb, [1], types={"reminder": False})
     # 오늘 이미 회차 기록을 씀
     c_ = new_user(); ec = ongoing(c_); set_reminder(c_, ec, [1])
-    db(lambda c: c.execute("insert into experience_log (id, experience_id, user_id, log_date, situation_chips, emotion_chips) "
-                           "values ($1, $2, $3, '2026-11-23', '{바빴다}', '{지침}')", uuid.uuid4(), ec, c_))
+    add_log(ec, c_, "2026-11-23")
     # 서버가 꺼져 있다가 두 시간 늦게 켜짐
     d = new_user(); ed = ongoing(d); set_reminder(d, ed, [1], at="19:00")
     # 설정이 깨져 있음
@@ -371,6 +378,24 @@ def test_reminder_is_skipped_when_it_should_not_fire(env):
                            json.dumps({str(ee): {"days": "월", "time": "밤"}, "엉뚱한 키": 3})))
     run(client, service.reminders, MON_2100)
     assert all(reminder_rows(u) == [] for u in (a, b, c_, d, e))
+
+
+def add_log(eid, uid, day):
+    from datetime import date
+    db(lambda c: c.execute("insert into experience_log (id, experience_id, user_id, log_date, situation_chips, emotion_chips) "
+                           "values ($1, $2, $3, $4, '{바빴다}', '{지침}')", uuid.uuid4(), eid, uid, date.fromisoformat(day)))
+
+
+def test_reminder_is_skipped_for_the_rest_of_the_week_after_a_log(env):
+    client, _ = env
+    from app.notifications import service
+    thu = MON_2100 + timedelta(days=3)                               # 2026-11-26 목요일
+    # 이번 주 화요일에 회차 기록을 남김 → 목요일 리마인드는 건너뛴다
+    a = new_user(); ea = ongoing(a); set_reminder(a, ea, [4]); add_log(ea, a, "2026-11-24")
+    # 지난주 일요일에 남긴 기록은 이번 주(월요일 시작)가 아니다 → 보낸다
+    b = new_user(); eb = ongoing(b); set_reminder(b, eb, [4]); add_log(eb, b, "2026-11-22")
+    run(client, service.reminders, thu)
+    assert reminder_rows(a) == [] and len(reminder_rows(b)) == 1
 
 
 def test_reminder_day_numbers_and_midnight():

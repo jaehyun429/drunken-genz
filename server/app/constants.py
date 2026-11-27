@@ -97,15 +97,26 @@ ANALYSIS_LLM_ATTEMPTS = 2        # /analysis 는 앱이 기다리는 호출이�
 
 # 알림
 NOTIFICATION_KEEP_DAYS = 30
-QUIET_START = "22:00"
-QUIET_END = "08:00"
 TZ = "Asia/Seoul"
 # 푸시 (이슈 #18). 아래는 명세에 없어 11/22 구현하면서 정한 값
-NOTIFY_TICK_S = 60                # 밀린 푸시를 보는 주기. 방해 금지가 끝난 뒤 묶음 푸시도 이 주기 안에 나간다 (08:00~08:01)
+NOTIFY_TICK_S = 60                # 밀린 푸시를 보는 주기. 정해진 시각 푸시(오전 9시, 저녁 6시)도 이 주기 안에 나간다
 NOTIFY_PURGE_EVERY_TICKS = 60     # 오래된 알림 삭제는 한 시간에 한 번
 PUSH_BATCH = 500                  # 한 번에 보는 알림 수
 PUSH_MAX_AGE_H = 24               # 이보다 오래 밀린 알림은 푸시하지 않는다 (서버가 오래 꺼져 있었을 때 한꺼번에 쏟아지지 않게)
 PUSH_CHUNK = 100                  # Expo 가 한 요청에 받는 메시지 수 상한
 PUSH_TIMEOUT_S = 10.0
 RELATED_NOTIFY_HOUR = 9            # 새 관련 경험 알림을 만드는 시각 (한국 시간). 9시대에 한 번, 서버가 그 시간 내내 꺼져 있었으면 다음 날 (지은 11/14)
+# 11/24 회의·기능명세서 16장: 방해 금지 시간은 없앴다. 켜고 끄는 단위는 종류(type)가 아니라 아래 6가지 분류다.
+# notification_setting.types 의 키는 분류 이름. 없는 키는 켬. 예전처럼 종류 이름으로 꺼 둔 값도 계속 받는다
+NOTIFICATION_CATEGORIES = {
+    "qa": ("new_question", "answer"),            # 질문/답변
+    "recommend": ("related_found",),              # 추천 경험
+    "reach": ("helpful", "saved"),                # 내 경험이 닿은 곳
+    "reminder": ("reminder",),                    # 진행 중 활동 리마인드
+    "draft": ("draft",),                          # 미뤄둔 경험 (앱 로컬 알림일 수 있다. 저장 위치 미정)
+    "verification": ("verification",),            # 증빙 (알림은 아직 안 만든다)
+}
+PUSH_FIXED_HOUR = {"helpful": 18, "saved": 18}   # 생긴 즉시가 아니라 그 뒤 처음 오는 이 시각(한국 시간)에 푸시. 내 경험이 닿은 곳 = 저녁 6시 (11/24)
+PUSH_ANDROID_CHANNELS = False      # True 면 푸시에 channelId(분류 이름)를 싣는다. 앱이 그 채널을 만들기 전에 켜면 안드로이드에서 알림이 안 뜬다 (Expo 문서)
+REMINDER_WEEK_START = 0            # 리마인드의 "그 주" 가 시작하는 요일. 0=월 … 6=일 (date.weekday). 명세에 없어 월요일로 잡음 TODO(기획)
 REMINDER_LATE_MAX_MIN = 60         # 리마인드 시각을 이만큼 넘기면 그날 것은 건너뛴다 (서버가 꺼져 있다 켜졌을 때 한참 늦은 리마인드를 보내지 않게)

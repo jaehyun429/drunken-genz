@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 import asyncpg
 
 from .. import db
-from ..constants import (NOTIFICATION_KEEP_DAYS, PUSH_BATCH, PUSH_MAX_AGE_H, QUIET_END, QUIET_START, RELATED_NOTIFY_HOUR,
-                         REMINDER_LATE_MAX_MIN, TZ)
+from ..constants import (NOTIFICATION_CATEGORIES, NOTIFICATION_KEEP_DAYS, PUSH_ANDROID_CHANNELS, PUSH_BATCH, PUSH_FIXED_HOUR,
+                         PUSH_MAX_AGE_H, RELATED_NOTIFY_HOUR, REMINDER_LATE_MAX_MIN, REMINDER_WEEK_START, TZ)
 from . import push, text
 
 log = logging.getLogger("notify")
@@ -27,13 +27,23 @@ def _hhmm(s: str) -> time:
     return time(int(h), int(m))
 
 
-def in_quiet(t: time, start: time, end: time) -> bool:
-    """방해 금지 시간 안인가. 22:00~08:00 처럼 자정을 넘는 구간도 된다. 시작과 끝이 같으면 방해 금지 없음."""
-    if start == end:
-        return False
-    if start < end:
-        return start <= t < end
-    return t >= start or t < end
+CATEGORY_OF = {t: cat for cat, ts in NOTIFICATION_CATEGORIES.items() for t in ts}
+
+
+def type_on(types, type_: str) -> bool:
+    """이 종류의 알림을 받는 설정인가. 분류(6가지)를 껐거나, 예전 방식으로 그 종류를 꺼 뒀으면 False. 없는 키는 켬."""
+    types = types if isinstance(types, dict) else {}
+    return types.get(CATEGORY_OF.get(type_, type_)) is not False and types.get(type_) is not False
+
+
+def push_due(type_: str, created_at: datetime) -> datetime:
+    """이 알림의 푸시가 나갈 시각. 대부분은 생긴 즉시. PUSH_FIXED_HOUR 에 있는 종류는 그 뒤 처음 오는 정해진 시각 (한국 시간)."""
+    hour = PUSH_FIXED_HOUR.get(type_)
+    if hour is None:
+        return created_at
+    local = created_at.astimezone(KST)
+    due = local.replace(hour=hour, minute=0, second=0, microsecond=0)
+    return due if due >= local else due + timedelta(days=1)
 
 
 def group_key(type_: str, experience_id, now: datetime | None = None) -> str:
@@ -54,11 +64,11 @@ async def add(conn: asyncpg.Connection, user_id: uuid.UUID, type_: str, payload:
 
 async def dispatch_pending(now: datetime | None = None) -> dict:
     """아직 푸시 여부를 정하지 않은 알림을 본다. 1분마다 돈다.
-       - 지금이 그 사람의 방해 금지 시간이면 건드리지 않는다 (알림함에는 이미 쌓여 있다)
-       - 방해 금지 시간에 생긴 알림이 둘 이상 밀려 있으면 "밤사이 알림 N개" 하나로 보낸다 (방해 금지가 끝난 뒤 첫 차례 = 아침 8시)
-       - 그 밖에는 한 건씩. 묶음 행은 처음 만들어질 때 한 번만 여기 걸리므로 "첫 건만 푸시"가 된다
-       - 푸시를 전체로 껐거나 그 종류를 껐거나 등록된 기기가 없으면 보내지 않고 본 것으로만 표시한다
-       돌려주는 것: {"sent": 보낸 메시지 수, "checked": 처리한 알림 수, "held": 방해 금지로 미룬 알림 수}"""
+       - 한 건씩 보낸다. 묶음 행은 처음 만들어질 때 한 번만 여기 걸리므로 "첫 건만 푸시"가 된다
+       - 정해진 시각에 보내는 종류(내 경험이 닿은 곳 = 저녁 6시)는 그 시각까지 건드리지 않는다. 알림함에는 이미 쌓여 있다
+       - 푸시를 전체로 껐거나 그 분류를 껐거나 등록된 기기가 없으면 보내지 않고 본 것으로만 표시한다
+       - 방해 금지 시간은 없다 (11/24 회의). notification_setting.quiet_start·quiet_end 는 읽지 않는다
+       돌려주는 것: {"sent": 보낸 메시지 수, "checked": 처리한 알림 수, "held": 정해진 시각까지 미룬 알림 수}"""
     now = now or _now()
     out = {"sent": 0, "checked": 0, "held": 0}
     async with db.pool().acquire() as conn, conn.transaction():
@@ -68,41 +78,39 @@ async def dispatch_pending(now: datetime | None = None) -> dict:
             "where push_checked_at is null order by created_at limit $1 for update skip locked", PUSH_BATCH)
         by_user: dict[uuid.UUID, list[asyncpg.Record]] = {}
         for r in rows:
-            by_user.setdefault(r["user_id"], []).append(r)
+            if r["type"] in PUSH_FIXED_HOUR and push_due(r["type"], r["created_at"]) > now:
+                out["held"] += 1
+            else:
+                by_user.setdefault(r["user_id"], []).append(r)
         for user_id, mine in by_user.items():
             res = await _dispatch_user(conn, user_id, mine, now)
-            for k in out:
+            for k in ("sent", "checked"):
                 out[k] += res[k]
     if out["checked"] or out["sent"]:
-        log.info("푸시: 메시지 %d개, 알림 %d건 처리, %d건은 방해 금지로 미룸", out["sent"], out["checked"], out["held"])
+        log.info("푸시: 메시지 %d개, 알림 %d건 처리, %d건은 정해진 시각까지 미룸", out["sent"], out["checked"], out["held"])
     return out
 
 
 async def _dispatch_user(conn: asyncpg.Connection, user_id: uuid.UUID, rows: list, now: datetime) -> dict:
-    st = await conn.fetchrow("select push_enabled, types, quiet_start, quiet_end from notification_setting "
-                             "where user_id = $1", user_id)
+    st = await conn.fetchrow("select push_enabled, types from notification_setting where user_id = $1", user_id)
     enabled = st["push_enabled"] if st else True
-    types = (st["types"] if st else None) or {}                 # 없는 키는 켬 (1117 수정 표: 기본 전부 켬)
-    q_start = st["quiet_start"] if st else _hhmm(QUIET_START)
-    q_end = st["quiet_end"] if st else _hhmm(QUIET_END)
-    if in_quiet(now.astimezone(KST).time(), q_start, q_end):
-        return {"sent": 0, "checked": 0, "held": len(rows)}
+    types = st["types"] if st else None
 
-    # TODO(기획): 종류를 끈 알림을 알림함에도 안 쌓을지. 지금은 푸시만 안 보낸다
-    fresh = [r for r in rows if r["created_at"] >= now - timedelta(hours=PUSH_MAX_AGE_H)]   # 오래 밀린 것은 이제 와서 보내지 않는다
-    wanted = [r for r in fresh if enabled and types.get(r["type"]) is not False]
+    # TODO(기획): 분류를 끈 알림을 알림함에도 안 쌓을지. 지금은 푸시만 안 보낸다 (리마인드만 알림함에도 안 만든다)
+    # 오래 밀린 것은 이제 와서 보내지 않는다. 정해진 시각 푸시는 그 시각부터 센다
+    fresh = [r for r in rows if push_due(r["type"], r["created_at"]) >= now - timedelta(hours=PUSH_MAX_AGE_H)]
+    wanted = [r for r in fresh if enabled and type_on(types, r["type"])]
     tokens = [d["token"] for d in await conn.fetch("select token from push_device where user_id = $1", user_id)] if wanted else []
-    night = [r for r in wanted if in_quiet(r["created_at"].astimezone(KST).time(), q_start, q_end)]
-    bodies: list[tuple[str, dict]] = []                                                    # (문구, data)
-    if len(night) >= 2:
-        bodies.append((text.digest(len(night)), {"type": "digest", "count": len(night)}))
-        singles = [r for r in wanted if r not in night]
-    else:
-        singles = wanted
-    for r in singles:
-        bodies.append((text.body(r["type"], r["count"], await _activity_name(conn, user_id, r["payload"])),
-                       {"notification_id": str(r["id"]), "type": r["type"], "payload": r["payload"]}))
-    messages = [{"to": t, "body": b, "data": d, "sound": "default"} for b, d in bodies for t in tokens]
+    messages = []
+    for r in wanted:
+        nid = str(r["id"])
+        msg = {"body": text.body(r["type"], r["count"], await _activity_name(conn, user_id, r["payload"])),
+               "data": {"notification_id": nid, "type": r["type"], "payload": r["payload"]}, "sound": "default",
+               # 같은 알림을 다시 보내면 휴대폰에 떠 있는 것을 바꿔 끼운다 (iOS collapseId, 안드로이드 tag). 지금은 한 번만 보낸다
+               "collapseId": nid, "tag": nid}
+        if PUSH_ANDROID_CHANNELS:
+            msg["channelId"] = CATEGORY_OF.get(r["type"], "default")
+        messages += [{"to": t, **msg} for t in tokens]
 
     sent = 0
     if messages:
@@ -110,7 +118,7 @@ async def _dispatch_user(conn: asyncpg.Connection, user_id: uuid.UUID, rows: lis
             tickets = await push.send(messages)
         except push.PushError as err:
             log.warning("Expo 전송 실패 (%s). 다음 차례에 다시 본다", err)
-            return {"sent": 0, "checked": 0, "held": 0}
+            return {"sent": 0, "checked": 0}
         dead = push.dead_tokens(messages, tickets)
         if dead:
             await conn.execute("delete from push_device where user_id = $1 and token = any($2::text[])", user_id, dead)
@@ -119,7 +127,7 @@ async def _dispatch_user(conn: asyncpg.Connection, user_id: uuid.UUID, rows: lis
     await conn.execute("update notification set push_checked_at = $2 where id = any($1::uuid[])", [r["id"] for r in rows], now)
     if pushed:
         await conn.execute("update notification set pushed_at = $2 where id = any($1::uuid[])", pushed, now)
-    return {"sent": sent, "checked": len(rows), "held": 0}
+    return {"sent": sent, "checked": len(rows)}
 
 
 async def _activity_name(conn: asyncpg.Connection, user_id: uuid.UUID, payload) -> str | None:
@@ -191,21 +199,23 @@ def reminder_due(cfg, now: datetime) -> datetime | None:
 
 async def reminders(now: datetime | None = None) -> int:
     """진행 중 활동 리마인드. 사용자가 활동마다 고른 요일·시간(notification_setting.reminders)에 알림 한 건. 만든 수 반환.
-       - 사용자가 직접 고른 활동만. 자동으로 켜지 않는다 (기획 "1117 수정" 알림 표)
-       - 활동이 끝났거나 지워졌으면 건너뛴다. 리마인드 종류를 껐으면 알림함에도 만들지 않는다
-       - 활동·날짜당 한 번 (묶음 키). 푸시는 dispatch_pending 이 보낸다
-       - 예정 시각이 그 사람의 방해 금지 시간 안이면 알림함에만 쌓고 푸시는 보내지 않는다 (아침에 뒤늦게 보내지 않는다) TODO(기획)
-       TODO(기획): 오늘 이미 회차 기록을 쓴 활동은 건너뛴다 (쓴 직후에 "기록을 남겨볼까요"가 오지 않게). 명세에 없다"""
+       - 사용자가 직접 고른 활동만. 자동으로 켜지 않는다 (기본 요일·시각을 채워 보여 주는 것은 앱, REC-07a-④)
+       - 활동이 끝났거나 지워졌으면 보내지 않는다. 설정에 남은 키는 건드리지 않는다 (앱이 쓰는 칸)
+       - 리마인드 분류를 껐으면 알림함에도 만들지 않는다. 활동별 설정은 그대로 남는다 (11/24)
+       - 그 주에 이미 회차 기록을 남긴 활동은 건너뛴다 (11/24). 주는 REMINDER_WEEK_START 요일부터 TODO(기획)
+       - 활동·날짜당 한 번 (묶음 키). 푸시는 dispatch_pending 이 보낸다"""
     now = now or _now()
     today = now.astimezone(KST).date()
+    week_start = today - timedelta(days=(today.weekday() - REMINDER_WEEK_START) % 7)
     made = 0
     async with db.pool().acquire() as conn:
         rows = await conn.fetch(
-            "select s.user_id, e.id as experience_id, r.value as cfg, s.quiet_start, s.quiet_end "
+            "select s.user_id, e.id as experience_id, r.value as cfg "
             "from notification_setting s cross join lateral jsonb_each(s.reminders) r "
             "join experience e on e.id::text = r.key and e.user_id = s.user_id and e.status = 'in_progress' "
             "where jsonb_typeof(s.reminders) = 'object' and coalesce(s.types->>'reminder', 'true') <> 'false' "
-            "  and not exists (select 1 from experience_log l where l.experience_id = e.id and l.log_date = $1)", today)
+            "  and not exists (select 1 from experience_log l where l.experience_id = e.id and l.log_date between $1 and $2)",
+            week_start, today)
         for r in rows:
             due = reminder_due(r["cfg"], now)
             if due is None:
@@ -213,9 +223,7 @@ async def reminders(now: datetime | None = None) -> int:
             key = group_key("reminder", r["experience_id"], due)
             if await conn.fetchval("select 1 from notification where user_id = $1 and grouped_key = $2", r["user_id"], key):
                 continue
-            nid = await add(conn, r["user_id"], "reminder", {"experience_id": str(r["experience_id"])}, key, bump=False)
-            if in_quiet(due.timetz().replace(tzinfo=None), r["quiet_start"], r["quiet_end"]):
-                await conn.execute("update notification set push_checked_at = $2 where id = $1", nid, now)
+            await add(conn, r["user_id"], "reminder", {"experience_id": str(r["experience_id"])}, key, bump=False)
             made += 1
     if made:
         log.info("리마인드 알림 %d건", made)

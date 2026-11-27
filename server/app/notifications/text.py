@@ -24,7 +24,3 @@ def body(type_: str, count: int = 1, activity_name: str | None = None) -> str:
         return "쓰다 만 기록이 있어요"
     return FALLBACK      # 모르는 종류 (verification, 커피챗 등 아직 안 만드는 것)
 
-
-def digest(n: int) -> str:
-    """방해 금지 시간에 쌓인 알림을 아침에 하나로 묶은 푸시."""
-    return f"밤사이 알림 {n}개가 있어요"
