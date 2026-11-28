@@ -6,9 +6,13 @@ from ..constants import ANALYSIS_LLM_ATTEMPTS
 from ..llm.client import complete_json
 from . import filters
 from .prompt import build_messages
-from .schemas import OUTPUT_SCHEMA, Outcome, Record
+from .schemas import Outcome, Record, quote_schema
 
 log = logging.getLogger("analysis")
+
+# 프롬프트 v3: 패턴마다, 번호 붙은 문장마다 근거 대목(quotes)을 먼저 옮겨 적게 한다. 저장은 안 하고 겹침을 가리는 데만 쓴다.
+# v2 로 되돌리려면 schemas.OUTPUT_SCHEMA 를 쓴다
+OUTPUT_SCHEMA = quote_schema()
 
 
 async def find_patterns(records: list[Record], existing: list[str], blocked: list[str], need: int) -> Outcome:

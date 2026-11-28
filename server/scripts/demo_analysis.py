@@ -2,11 +2,10 @@
    cd server && python -m scripts.demo_analysis                  # 6개 전부 (회차 기록 2개 포함 기록 8개)
    python -m scripts.demo_analysis f01 f02 f06                   # 골라서
    python -m scripts.demo_analysis --feedback                    # 첫 패턴에 "아니에요", 둘째에 "맞아요"를 누른 것처럼 꾸며 다시 분석
-   python -m scripts.demo_analysis --prompt quote                # 실험 판 (app/llm/prompts/lab_analysis_quote.md). 근거 대목을 먼저 옮겨 적게 한다
-   판 (11/28, 이슈 #22): v2 는 Qwen 에서 칩을 센 문장만 냈다 ("오프라인 방식으로 진행한 활동이 다수예요").
-     quote = v2 + 직접 쓴 글부터 찾기 + 방식·규모 칩 하나만 센 문장 금지 + 출력에 quotes(옮겨 적은 대목)를 text 앞에
-     11/28 첫 실행: 직접 쓴 글에서 패턴이 나옴, 칩 하나 센 문장이 줄어듦. 다시 분석에서 '맞아요' 한 문장을 말만 바꿔 다시 냄
-     → 번호가 붙은 문장(p1, n1)도 quotes 를 적게 하고, 같은 대목에 기댄 새 문장은 코드가 버린다 (filters.same_quotes)
+   python -m scripts.demo_analysis --v2                          # 11/28 까지 서비스가 쓰던 프롬프트로 (견줘 볼 때)
+   11/28 Qwen (이슈 #24): v2 는 칩을 센 문장만 냈다 ("오프라인 방식으로 진행한 활동이 다수예요").
+     v3 = 직접 쓴 글부터 찾기 + 방식·규모 칩 하나만 센 문장 금지 + 출력에 quotes(옮겨 적은 대목)를 text 앞에.
+     v3 는 다시 분석에서 '맞아요' 한 문장을 말만 바꿔 다시 내는데, 같은 대목에 기댄 문장은 코드가 버린다 (filters.same_quotes)
    .env 의 LLM_BASE_URL 이 GPU 서버를 가리켜야 함 (컨테이너 안에서 돌리거나 터널)."""
 import asyncio, json, sys, time, pathlib
 from collections import defaultdict
@@ -15,7 +14,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from app.analysis import generate as gen, prompt as aprompt
 from app.analysis.generate import find_patterns
 from app.analysis.prompt import experience_text, log_text
-from app.analysis.schemas import Record, quote_schema
+from app.analysis.schemas import OUTPUT_SCHEMA, Record
 from app.constants import ANALYSIS_MIN_RECORDS, ANALYSIS_PATTERN_MAX
 from app.llm.client import LLMConnectionError, LLMModelError
 
@@ -43,12 +42,12 @@ async def recording_complete(system, user, schema, **kw):
     return res
 
 
-def use(name: str | None):
-    """실험 판으로 바꿔 끼운다. 이 프로세스 안에서만. 서비스 코드는 안 바뀐다."""
+def use(v2: bool):
+    """원문을 모으게 하고, --v2 면 예전 프롬프트와 출력 모양으로 바꿔 끼운다. 이 프로세스 안에서만."""
     gen.complete_json = recording_complete
-    if name:
-        aprompt.ANALYSIS_PROMPT = f"lab_analysis_{name}"
-        gen.OUTPUT_SCHEMA = quote_schema()
+    if v2:
+        aprompt.ANALYSIS_PROMPT = "analysis_v2"
+        gen.OUTPUT_SCHEMA = OUTPUT_SCHEMA
 
 
 async def run(records, existing, blocked, need, title):
@@ -95,8 +94,5 @@ async def main(ids: list[str], feedback: bool):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    name = None
-    if "--prompt" in args:
-        i = args.index("--prompt"); name = args[i + 1]; del args[i:i + 2]
-    use(name)
+    use("--v2" in args)
     asyncio.run(main([a for a in args if not a.startswith("--")], feedback="--feedback" in args))

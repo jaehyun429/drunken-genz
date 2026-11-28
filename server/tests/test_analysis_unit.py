@@ -133,7 +133,7 @@ def test_hash_ignores_keys_and_order_but_not_content():
 
 def test_prompt_has_rules_and_only_what_it_is_given():
     version, system, user = build_messages(R, ["이미 있는 문장이에요."], ["막힌 문장이에요."], 3)
-    assert version == "v2" and "{" not in re.sub(r'\{"patterns".*', "", system)   # 자리표시자가 남지 않음
+    assert version == "v3" and "{" not in re.sub(r'\{"patterns".*', "", system)   # 자리표시자가 남지 않음
     assert "최대 3개" in system and f"{ANALYSIS_TEXT_MAX}자" in system and "기록 **2개 이상**" in system
     assert "[e1] 활동: 카페 알바" in user and "[e1.l1] 카페 알바 회차 기록" in user
     assert "## 이미 있는 문장\n- [p1] 이미 있는 문장이에요." in user and "## 만들지 않을 문장\n- [n1] 막힌 문장이에요." in user
@@ -163,7 +163,7 @@ def test_find_patterns_filters_and_reports(monkeypatch):
     monkeypatch.setattr(gen, "complete_json", fake)
     out = asyncio.run(gen.find_patterns(R, [], [], 5))
     assert [f.text for f in out.patterns] == ["지쳤다고 고른 기록이 두 개 있어요."]
-    assert out.dropped == [("기획 일에 잘 맞을 거예요.", "앞날 단정")] and out.model == "fake" and out.prompt_version == "v2"
+    assert out.dropped == [("기획 일에 잘 맞을 거예요.", "앞날 단정")] and out.model == "fake" and out.prompt_version == "v3"
     assert fake.kw == {"max_attempts": 2} and out.rechecked == {}
 
 
@@ -229,3 +229,11 @@ def test_two_new_patterns_on_the_same_quotes_keep_the_first():
 def test_patterns_without_quotes_are_untouched():
     kept, _ = filters.apply([p("시간이 부족했다는 상황을 두 번 적었어요.", "e1", "e2"), p("지침을 두 번 골랐어요.", "e1", "e2")], KEYS, [], [], 5)
     assert len(kept) == 2
+
+
+def test_output_shape_puts_quotes_before_text():
+    """v3: 모델이 문장을 쓰기 전에 근거 대목부터 옮겨 적는다. 번호 붙은 문장에도 quotes 가 있어야 겹침을 가린다."""
+    from app.analysis import generate
+    props = generate.OUTPUT_SCHEMA["properties"]
+    assert list(props["patterns"]["items"]["properties"]) == ["quotes", "text", "evidence"]
+    assert list(props["existing"]["items"]["properties"]) == ["id", "quotes", "evidence"]

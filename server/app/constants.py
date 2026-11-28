@@ -77,7 +77,7 @@ SNAPSHOT_VERSION = 1
 # 분석 (CLAUDE.local.md 6장). 아래에서 ANALYSIS_MIN_RECORDS·PATTERN_MIN_EVIDENCE 말고는 명세에 없어 11/15 구현하면서 정한 값
 ANALYSIS_MIN_RECORDS = 3         # 미만이면 잠김. 회차 기록도 셈
 PATTERN_MIN_EVIDENCE = 2         # 패턴 하나의 근거 기록 수 하한. 회차 기록도 기록 하나로 센다
-ANALYSIS_PROMPT = "analysis_v2"  # app/llm/prompts/<이름>.md. v2 (11/22): 남긴 문장·숨긴 문장의 근거를 다시 센다 (기능명세서 15장)
+ANALYSIS_PROMPT = "analysis_v3"  # app/llm/prompts/<이름>.md. v2 (11/22): 남긴·숨긴 문장의 근거를 다시 센다 (15장). v3 (11/28): 직접 쓴 글부터 찾고 근거 대목(quotes)을 먼저 옮겨 적는다
 ANALYSIS_PATTERN_MAX = 5         # 내려주는 패턴 수 상한. 근거 수 많은 순 (기능명세서 15장: 처음 3개, 더보기로 5개. 3개에서 자르는 것은 앱)
 ANALYSIS_RESURFACE_MIN_RECORDS = 5   # "아니에요" 패턴을 다시 보여줄 수 있는 전체 기록 수 (15장 "기록 5개(처음 3 + 추가 2) 이후").
                                      # TODO(기획): 전체 기록 수로 읽었다. "아니에요" 뒤로 2개 더인지 확인
