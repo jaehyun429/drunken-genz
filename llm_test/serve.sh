@@ -13,6 +13,8 @@
 #   uv pip install -U vllm --torch-backend=auto          # NGC 이미지의 torch와 섞이지 않게 venv에
 # 다른 서버에서: HF_HOME, PORT, UTIL(GPU 메모리 비율), TP(GPU 장 수) 를 환경변수로 바꾼다
 #   HF_HOME=~/hf TP=2 UTIL=0.85 PORT=18000 bash serve.sh qwen27
+# 메모리를 적게 잡을 때 (GPU 를 같이 쓸 때): UTIL 을 낮추면 SEQS(동시에 받는 요청 수)도 같이 낮춘다
+#   UTIL=0.35 SEQS=16 PORT=18000 bash serve.sh qwen27
 # 띄운 뒤 확인: curl localhost:8000/v1/models
 set -euo pipefail
 
@@ -21,8 +23,11 @@ PORT="${PORT:-8000}"
 MAXLEN="${MAXLEN:-16384}"
 UTIL="${UTIL:-0.90}"
 TP="${TP:-1}"            # GPU 여러 장에 나눠 올릴 때 장 수. 48GB 두 장이면 TP=2 (Qwen3.8-27B 는 모델만 54GB 쯤)
+SEQS="${SEQS:-}"         # 동시에 받는 요청 수 (--max-num-seqs). 비우면 vLLM 기본값(1024). UTIL 0.35 에서 기본값이면 안 뜬다 (11/28)
 COMMON=(--host 0.0.0.0 --port "$PORT" --max-model-len "$MAXLEN" --gpu-memory-utilization "$UTIL"
         --served-model-name local --enable-prefix-caching --tensor-parallel-size "$TP")
+
+[[ -n "$SEQS" ]] && COMMON+=(--max-num-seqs "$SEQS")
 
 case "${1:-}" in
   qwen27)   MODEL="Qwen/Qwen3.8-27B" ;                      EXTRA=(--reasoning-parser qwen3) ;;
