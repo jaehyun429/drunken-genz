@@ -5,18 +5,17 @@
    python -m scripts.question_lab --dry                         # 모델 없이 배선만 확인 (가짜 응답)
    .env 의 LLM_BASE_URL 이 모델을 가리켜야 한다 (GPU 서버의 Qwen, 또는 README 의 Anthropic 호환 주소).
 
-   판 (서비스는 v6. v6 말고는 먼저 적는 칸 anchor·change 가 있다)
-   - v6   : 서비스가 쓰는 것
-   - pick : 먼저 적는 칸 + 사용자가 쓴 글 먼저 붙잡기. 11/28 Qwen 에서 네 번 모두 7건 4개
-   - frame: pick + 진행 중 활동의 문장 틀 고침. 11/28 두 번 모두 7건 4개
-   - v7   : frame 에서 둘째 줄 "(실험용 …)" 을 빼고 절 제목의 "(실험)" 을 "(v7)" 로 바꾼 것뿐인데 7건 가운데 4건이 빈 목록
-   - v7h  : v7 에서 절 제목만 frame 과 같게 (둘째 줄과 제목 가운데 어느 쪽 탓인지 가르는 용)
-   - v7min: v7 그대로, 출력 모양에 minItems 1 (빈 목록을 문법으로 막기)
+   판 (v6 말고는 먼저 적는 칸 anchor·change 가 있다)
+   - v6   : 11/28 까지 서비스가 쓰던 것
+   - pick : 먼저 적는 칸 + 사용자가 쓴 글 먼저 붙잡기
+   - frame: pick + 진행 중 활동의 문장 틀 고침. 11/28 Qwen 세 번 모두 7건 4개
+   - v7   : 서비스가 쓰는 것. frame 과 같은 규칙 + 출력 모양에 minItems 1. 11/28 Qwen 7건 4개
+   - v7raw: v7 에서 minItems 를 뺀 것. 11/28 에 7건 가운데 4건이 빈 목록 (대조용)
    실패하면 모델이 돌려준 원문을 결과 파일에 같이 적는다.
 
-   11/28 에 알게 된 것: 이 프롬프트는 글자 몇 개에도 Qwen 이 빈 목록({"questions": []})으로 넘어간다.
-   금지 문장 넷을 더한 초안도 그랬다. "빈 목록으로 답하지 않는다"는 지시는 효과 없음.
-   실제 모델로 확인하기 전에 constants.QUESTION_PROMPT 를 바꾸지 않는다 (두 번 어겼다)
+   11/28 에 알게 된 것: 이 프롬프트는 뜻과 무관한 글자(둘째 줄 메모, 절 제목의 괄호)에도 Qwen 이
+   빈 목록({"questions": []})으로 넘어간다. "빈 목록으로 답하지 않는다"는 지시는 효과 없고 minItems 1 은 막는다.
+   프롬프트를 고치면 여기서 v7 을 돌려 본 뒤에 올린다. 돌린 파일과 올리는 파일은 글자까지 같아야 한다
 
    11/28 Qwen 실험 (기록 7개): 먼저 적는 칸은 효과 있음. 60자는 더 적어보기에만 효과. 문장 틀을 없앤 판은 거의 차이 없어 버렸다"""
 import asyncio, copy, json, os, pathlib, sys, time
@@ -31,9 +30,8 @@ VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 �
     "v6": ("question_v6", 40, False, 0),
     "pick": ("lab_question_pick", 40, True, 0),
     "frame": ("lab_question_frame", 40, True, 0),
-    "v7": ("question_v7", 40, True, 0),
-    "v7h": ("lab_question_v7h", 40, True, 0),
-    "v7min": ("question_v7", 40, True, 1),
+    "v7": ("question_v7", 40, True, 1),
+    "v7raw": ("question_v7", 40, True, 0),
 }
 LABEL = {"write_more": "더 적어보기", "try_next": "해볼 것", "imagine": "상상해보기"}
 RAW: list[str] = []            # 이번 판에서 모델이 돌려준 원문 (실패했을 때 보고서에 싣는다)
