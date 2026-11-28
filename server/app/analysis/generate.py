@@ -18,8 +18,11 @@ async def find_patterns(records: list[Record], existing: list[str], blocked: lis
     result = await complete_json(system, user, OUTPUT_SCHEMA, max_attempts=ANALYSIS_LLM_ATTEMPTS)
     raw = result.data.get("patterns")
     keys = {r.key for r in records}
-    kept, dropped = filters.apply(raw if isinstance(raw, list) else [], keys, existing, blocked, need)
     again = result.data.get("existing")
+    # 번호가 붙은 문장의 근거 대목 (출력에 quotes 가 있는 프롬프트에서만). 같은 대목에 기댄 새 문장은 버린다
+    taken = [(filters.quote_set(it.get("quotes")), filters.BLOCKED if str(it.get("id", "")).strip("[] ").startswith("n") else filters.DUPLICATE)
+             for it in (again if isinstance(again, list) else []) if isinstance(it, dict)]
+    kept, dropped = filters.apply(raw if isinstance(raw, list) else [], keys, existing, blocked, need, taken)
     labels = {f"p{i}" for i in range(1, len(existing) + 1)} | {f"n{i}" for i in range(1, len(blocked) + 1)}
     rechecked = filters.recheck(again if isinstance(again, list) else [], keys, labels)
     # 사용자 글이 섞일 수 있어 개수만 남긴다

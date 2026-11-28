@@ -196,3 +196,36 @@ def test_analysis_code_never_touches_qa_or_reaction():
     src = "".join(f.read_text(encoding="utf-8") for f in pathlib.Path(gen.__file__).parent.glob("*.py"))
     sql = " ".join(re.findall(r'"([^"]*)"', src))
     assert not re.search(r"\b(from|join|into|update)\s+(qa|reaction|helpful_reason)\b", sql)
+
+
+# ── 옮겨 적은 대목(quotes)으로 겹침 잡기 (11/28, 이슈 #24. 출력에 quotes 가 있는 프롬프트에서만 쓰인다) ──
+
+def test_quote_set_reads_key_and_ignores_punctuation():
+    assert filters.quote_set(["e1: 뭐가 통한 건지 모르겠다.", "[e2.l1] : 주말 매출 얘기 또 들음", "번호 없음", 3, "e3: "]) == {
+        ("e1", "뭐가통한건지모르겠다"), ("e2.l1", "주말매출얘기또들음")}
+
+
+def test_reworded_pattern_on_the_same_quotes_is_dropped():
+    """11/28 Qwen 실제 출력: '맞아요' 한 문장을 말만 바꿔 다시 냈다. 낱말 닮음은 0.28 이라 못 잡는다."""
+    q = ["e1: 뭐가 통한 건지 모르겠다", "e2: 왜 떨어졌는지 피드백이 없다"]
+    new = {"quotes": q, "text": "노력한 결과에 대해 왜 그런지 이유를 알 수 없었다고 두 번 적었어요.", "evidence": ["e1", "e2"]}
+    other = {"quotes": ["e1: 시간이 부족했다", "e2: 시간이 부족했다"], "text": "시간이 부족했다는 상황을 두 번 적었어요.", "evidence": ["e1", "e2"]}
+    old = ["결과가 나오지 않거나 떨어졌을 때 이유를 알 수 없었다고 적었어요."]
+    kept, dropped = filters.apply([new, other], KEYS, old, [], 5, [(filters.quote_set(q), filters.DUPLICATE)])
+    assert [k.text for k in kept] == [other["text"]]            # 근거 기록이 같아도 대목이 다르면 남는다
+    assert dropped == [(new["text"], filters.DUPLICATE)]
+    kept, dropped = filters.apply([new], KEYS, [], old, 5, [(filters.quote_set(q), filters.BLOCKED)])
+    assert not kept and dropped[0][1] == filters.BLOCKED
+
+
+def test_two_new_patterns_on_the_same_quotes_keep_the_first():
+    q = ["e1: 주말 매출 얘기 또 들음", "e2: 매출 얘기만 해서"]
+    a = {"quotes": q, "text": "매출 이야기를 두 번 적었어요.", "evidence": ["e1", "e2"]}
+    b = {"quotes": q, "text": "숫자로 평가받는 일을 되풀이해서 겪었어요.", "evidence": ["e1", "e2"]}
+    kept, dropped = filters.apply([a, b], KEYS, [], [], 5)
+    assert [k.text for k in kept] == [a["text"]] and dropped[0][1] == filters.DUPLICATE
+
+
+def test_patterns_without_quotes_are_untouched():
+    kept, _ = filters.apply([p("시간이 부족했다는 상황을 두 번 적었어요.", "e1", "e2"), p("지침을 두 번 골랐어요.", "e1", "e2")], KEYS, [], [], 5)
+    assert len(kept) == 2

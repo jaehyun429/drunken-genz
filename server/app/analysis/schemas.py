@@ -55,4 +55,8 @@ def quote_schema() -> dict:
     p = item["properties"]
     item["properties"] = {"quotes": {"type": "array", "items": {"type": "string"}}, "text": p["text"], "evidence": p["evidence"]}
     item["required"] = list(item["properties"])
+    old = s["properties"]["existing"]["items"]      # 번호가 붙은 문장도 대목을 옮겨 적게 한다 (새 문장과 겹치는지 코드가 견준다)
+    o = old["properties"]
+    old["properties"] = {"id": o["id"], "quotes": {"type": "array", "items": {"type": "string"}}, "evidence": o["evidence"]}
+    old["required"] = list(old["properties"])
     return s
