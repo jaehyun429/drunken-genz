@@ -5,13 +5,12 @@
    python -m scripts.question_lab --dry                         # 모델 없이 배선만 확인 (가짜 응답)
    .env 의 LLM_BASE_URL 이 모델을 가리켜야 한다 (GPU 서버의 Qwen, 또는 README 의 Anthropic 호환 주소).
 
-   판 (무엇을 하나씩 풀어 보는가)
-   - v6    : 지금 서비스가 쓰는 것. 40자, 정해진 문장 틀
-   - think : v6 + 질문을 쓰기 전에 '붙잡은 대목(anchor)'과 '바꿀 구체적인 값(change)'을 먼저 적게 함. 40자, 틀 그대로
-   - long  : think + 길이 60자
-   - free  : think + 60자 + 정해진 문장 틀 없음 (존댓말, "요?"로 끝나는 것만 지킴)
-   - pick  : think + 붙잡는 대목의 순서 (직접 쓴 글 먼저, 조건 칩은 마지막. 사람 수·시간만 바꾼 질문 금지). 40자, 틀 그대로
-   - picklong : pick + 60자"""
+   판
+   - v6     : 11/27 까지 서비스가 쓰던 것. 먼저 적는 칸 없음
+   - v7     : 지금 서비스가 쓰는 것. 질문을 쓰기 전에 '붙잡은 대목(anchor)'과 '바꿀 값(change)'을 먼저 적고, 사용자가 쓴 글을 먼저 붙잡는다. 40자
+   - v7long : v7 에 길이만 60자
+
+   11/28 Qwen 실험 (기록 7개): 먼저 적는 칸은 효과 있음. 60자는 더 적어보기에만 효과. 문장 틀을 없앤 판은 거의 차이 없어 버렸다"""
 import asyncio, copy, json, os, pathlib, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -22,23 +21,19 @@ from app.llm.client import LLMConnectionError, LLMModelError
 
 VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 적는 칸이 있는가)
     "v6": ("question_v6", 40, False),
-    "think": ("lab_question_think", 40, True),
-    "long": ("lab_question_think", 60, True),
-    "free": ("lab_question_free", 60, True),
-    "pick": ("lab_question_pick", 40, True),
-    "picklong": ("lab_question_pick", 60, True),
+    "v7": ("question_v7", 40, True),
+    "v7long": ("question_v7", 60, True),
 }
 LABEL = {"write_more": "더 적어보기", "try_next": "해볼 것", "imagine": "상상해보기"}
 THOUGHTS: list[dict] = []     # 모델이 먼저 적은 칸 (화면에는 안 나간다. 보고서에만 싣는다)
 
 
-def think_schema() -> dict:
+def plain_schema() -> dict:
+    """v6 까지의 출력 모양 (먼저 적는 칸 없음)."""
     s = copy.deepcopy(OUTPUT_SCHEMA)
     item = s["properties"]["questions"]["items"]
-    p = item["properties"]
-    item["properties"] = {"type": p["type"], "axis": p["axis"], "anchor": {"type": "string"}, "change": {"type": "string"},
-                          "text": p["text"], "source": p["source"], "done_experience_id": p["done_experience_id"]}
-    item["required"] = list(item["properties"])
+    for k in ("anchor", "change"):
+        item["properties"].pop(k); item["required"].remove(k)
     return s
 
 
@@ -47,7 +42,7 @@ def use(name: str):
     file, text_max, think = VARIANTS[name]
     prompt.QUESTION_PROMPT = file
     prompt.QUESTION_TEXT_MAX = filters.QUESTION_TEXT_MAX = text_max
-    gen.OUTPUT_SCHEMA = think_schema() if think else OUTPUT_SCHEMA
+    gen.OUTPUT_SCHEMA = OUTPUT_SCHEMA if think else plain_schema()
 
 
 _real_complete = gen.complete_json

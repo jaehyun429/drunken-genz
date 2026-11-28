@@ -87,11 +87,15 @@ OUTPUT_SCHEMA = {
                 "properties": {
                     "type": {"type": "string", "enum": ["try_next", "imagine", "write_more"]},
                     "axis": {"type": "string", "enum": list(AXES_TRY + AXES_IMAGINE + AXES_WRITE_MORE)},
+                    # anchor, change: 질문을 쓰기 전에 모델이 먼저 적는 칸 (프롬프트 v7). 저장하지 않고 화면에도 안 나간다.
+                    # text 보다 앞에 있어야 한다 (모델은 적힌 순서대로 쓴다)
+                    "anchor": {"type": "string"},
+                    "change": {"type": "string"},
                     "text": {"type": "string"},
                     "source": {"type": "string"},
                     "done_experience_id": {"type": ["string", "null"]},
                 },
-                "required": ["type", "axis", "text", "source", "done_experience_id"],
+                "required": ["type", "axis", "anchor", "change", "text", "source", "done_experience_id"],
                 "additionalProperties": False,
             },
         }
