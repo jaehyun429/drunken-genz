@@ -87,15 +87,11 @@ OUTPUT_SCHEMA = {
                 "properties": {
                     "type": {"type": "string", "enum": ["try_next", "imagine", "write_more"]},
                     "axis": {"type": "string", "enum": list(AXES_TRY + AXES_IMAGINE + AXES_WRITE_MORE)},
-                    # anchor, change: 질문을 쓰기 전에 모델이 먼저 적는 칸 (프롬프트 v7). 저장하지 않고 화면에도 안 나간다.
-                    # text 보다 앞에 있어야 한다 (모델은 적힌 순서대로 쓴다)
-                    "anchor": {"type": "string"},
-                    "change": {"type": "string"},
                     "text": {"type": "string"},
                     "source": {"type": "string"},
                     "done_experience_id": {"type": ["string", "null"]},
                 },
-                "required": ["type", "axis", "anchor", "change", "text", "source", "done_experience_id"],
+                "required": ["type", "axis", "text", "source", "done_experience_id"],
                 "additionalProperties": False,
             },
         }
@@ -103,3 +99,16 @@ OUTPUT_SCHEMA = {
     "required": ["questions"],
     "additionalProperties": False,
 }
+
+
+def think_schema() -> dict:
+    """프롬프트 v7 용 (실험 중, scripts/question_lab.py). 질문을 쓰기 전에 모델이 먼저 적는 칸 anchor, change 를 text 앞에 둔다.
+       모델은 적힌 순서대로 쓴다. 저장하지 않고 화면에도 안 나간다."""
+    import copy
+    s = copy.deepcopy(OUTPUT_SCHEMA)
+    item = s["properties"]["questions"]["items"]
+    p = item["properties"]
+    item["properties"] = {"type": p["type"], "axis": p["axis"], "anchor": {"type": "string"}, "change": {"type": "string"},
+                          "text": p["text"], "source": p["source"], "done_experience_id": p["done_experience_id"]}
+    item["required"] = list(item["properties"])
+    return s
