@@ -9,10 +9,13 @@
    - v6    : 지금 서비스가 쓰는 것. 40자, 정해진 문장 틀
    - think : v6 + 질문을 쓰기 전에 '붙잡은 대목(anchor)'과 '바꿀 구체적인 값(change)'을 먼저 적게 함. 40자, 틀 그대로
    - long  : think + 길이 60자
-   - free  : think + 60자 + 정해진 문장 틀 없음 (존댓말, "요?"로 끝나는 것만 지킴)"""
+   - free  : think + 60자 + 정해진 문장 틀 없음 (존댓말, "요?"로 끝나는 것만 지킴)
+   - pick  : think + 붙잡는 대목의 순서 (직접 쓴 글 먼저, 조건 칩은 마지막. 사람 수·시간만 바꾼 질문 금지). 40자, 틀 그대로
+   - picklong : pick + 60자"""
 import asyncio, copy, json, os, pathlib, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from app.config import settings
 from app.questions import filters, generate as gen, prompt
 from app.questions.schemas import ExperienceInput, OtherExperience, OUTPUT_SCHEMA
 from app.llm.client import LLMConnectionError, LLMModelError
@@ -22,6 +25,8 @@ VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 �
     "think": ("lab_question_think", 40, True),
     "long": ("lab_question_think", 60, True),
     "free": ("lab_question_free", 60, True),
+    "pick": ("lab_question_pick", 40, True),
+    "picklong": ("lab_question_pick", 60, True),
 }
 LABEL = {"write_more": "더 적어보기", "try_next": "해볼 것", "imagine": "상상해보기"}
 THOUGHTS: list[dict] = []     # 모델이 먼저 적은 칸 (화면에는 안 나간다. 보고서에만 싣는다)
@@ -72,7 +77,7 @@ async def main(ids: list[str], only: list[str], dry: bool):
     others_all = [OtherExperience(id=d["id"], activity_name=d["activity_name"], genre=d["genre"], role=d["role"],
                                   did_chips=d["did_chips"]) for d in data]
     names = [n for n in VARIANTS if not only or n in only]
-    model = "dry" if dry else os.environ.get("LLM_MODEL", "model")
+    model = "dry" if dry else settings().llm_model
     md = [f"# 질문 품질 실험 — 모델 `{model}`", "",
           "같은 기록을 프롬프트 판마다 돌린 결과. 판 설명은 `scripts/question_lab.py` 맨 위.", ""]
     stat = {n: {"q": 0, "plain": 0, "len": 0, "drop": 0, "sec": 0.0, "fail": 0} for n in names}
