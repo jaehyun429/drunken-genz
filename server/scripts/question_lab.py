@@ -9,7 +9,11 @@
    - v6   : 서비스가 쓰는 것. 먼저 적는 칸 없음
    - pick : 11/28 에 7건 모두 4개가 나온 판 (대조용)
    - v7   : pick 을 다듬은 것. 11/28 Qwen 에서 기록 7개 가운데 3~4개가 빈 목록으로 실패. 원인 모름
-   - must : v7 + "처음 만들 때는 빈 목록으로 답하지 않는다"
+   v7 이 pick 에 더한 문장을 하나씩만 넣은 판 (어느 문장이 빈 목록을 부르는지 찾는 용)
+   - frame: pick + 진행 중 활동의 문장 틀 고침 (두 문장)
+   - num  : pick + "기록에 적히지 않은 수치를 아는 것처럼 쓰지 않는다"
+   - head : pick + "보강글에 사람 수가 적혀 있어도 마찬가지다"
+   ("빈 목록으로 답하지 않는다"를 더한 must 판은 11/28 에 효과가 없어 버렸다)
    실패하면 모델이 돌려준 원문을 결과 파일에 같이 적는다.
 
    11/28 Qwen 실험 (기록 7개): 먼저 적는 칸은 효과 있음. 60자는 더 적어보기에만 효과. 문장 틀을 없앤 판은 거의 차이 없어 버렸다"""
@@ -25,7 +29,9 @@ VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 �
     "v6": ("question_v6", 40, False),
     "pick": ("lab_question_pick", 40, True),
     "v7": ("question_v7", 40, True),
-    "must": ("lab_question_must", 40, True),
+    "frame": ("lab_question_frame", 40, True),
+    "num": ("lab_question_num", 40, True),
+    "head": ("lab_question_head", 40, True),
 }
 LABEL = {"write_more": "더 적어보기", "try_next": "해볼 것", "imagine": "상상해보기"}
 RAW: list[str] = []            # 이번 판에서 모델이 돌려준 원문 (실패했을 때 보고서에 싣는다)
