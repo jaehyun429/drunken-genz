@@ -2,14 +2,18 @@
    cd server && python -m scripts.demo_analysis                  # 6개 전부 (회차 기록 2개 포함 기록 8개)
    python -m scripts.demo_analysis f01 f02 f06                   # 골라서
    python -m scripts.demo_analysis --feedback                    # 첫 패턴에 "아니에요", 둘째에 "맞아요"를 누른 것처럼 꾸며 다시 분석
+   python -m scripts.demo_analysis --prompt quote                # 실험 판 (app/llm/prompts/lab_analysis_quote.md). 근거 대목을 먼저 옮겨 적게 한다
+   판 (11/28, 이슈 #22): v2 는 Qwen 에서 칩을 센 문장만 냈다 ("오프라인 방식으로 진행한 활동이 다수예요").
+     quote = v2 + 직접 쓴 글부터 찾기 + 방식·규모 칩 하나만 센 문장 금지 + 출력에 quotes(옮겨 적은 대목)를 text 앞에
    .env 의 LLM_BASE_URL 이 GPU 서버를 가리켜야 함 (컨테이너 안에서 돌리거나 터널)."""
 import asyncio, json, sys, time, pathlib
 from collections import defaultdict
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+from app.analysis import generate as gen, prompt as aprompt
 from app.analysis.generate import find_patterns
 from app.analysis.prompt import experience_text, log_text
-from app.analysis.schemas import Record
+from app.analysis.schemas import Record, quote_schema
 from app.constants import ANALYSIS_MIN_RECORDS, ANALYSIS_PATTERN_MAX
 from app.llm.client import LLMConnectionError, LLMModelError
 
@@ -27,8 +31,27 @@ def to_records(data: list[dict]) -> list[Record]:
     return out
 
 
+RAW: list[dict] = []          # 모델이 돌려준 원문 (quotes 를 보여주려고)
+_real_complete = gen.complete_json
+
+
+async def recording_complete(system, user, schema, **kw):
+    res = await _real_complete(system, user, schema, **kw)
+    RAW.append(res.data)
+    return res
+
+
+def use(name: str | None):
+    """실험 판으로 바꿔 끼운다. 이 프로세스 안에서만. 서비스 코드는 안 바뀐다."""
+    gen.complete_json = recording_complete
+    if name:
+        aprompt.ANALYSIS_PROMPT = f"lab_analysis_{name}"
+        gen.OUTPUT_SCHEMA = quote_schema()
+
+
 async def run(records, existing, blocked, need, title):
     by_key = {r.key: r for r in records}
+    RAW.clear()
     print(f"\n{'=' * 70}\n{title}")
     t0 = time.time()
     try:
@@ -41,6 +64,10 @@ async def run(records, existing, blocked, need, title):
     for p in out.patterns:
         where = ", ".join(by_key[k].activity_name + (f" {by_key[k].log_date}" if by_key[k].log_date else "") for k in p.keys)
         print(f"  · {p.text}\n      ← {where}")
+        for it in (RAW[-1].get("patterns") or []) if RAW else []:
+            if isinstance(it, dict) and str(it.get("text", "")).strip() == p.text:
+                for q in it.get("quotes") or []:
+                    print(f"        「{q}」")
     for text, why in out.dropped:
         print(f"  ✗ 버림: {text}  ({why})")
     labels = {f"p{i}": t for i, t in enumerate(existing, 1)} | {f"n{i}": t for i, t in enumerate(blocked, 1)}
@@ -66,4 +93,8 @@ async def main(ids: list[str], feedback: bool):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    name = None
+    if "--prompt" in args:
+        i = args.index("--prompt"); name = args[i + 1]; del args[i:i + 2]
+    use(name)
     asyncio.run(main([a for a in args if not a.startswith("--")], feedback="--feedback" in args))
