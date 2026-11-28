@@ -99,3 +99,18 @@ OUTPUT_SCHEMA = {
     "required": ["questions"],
     "additionalProperties": False,
 }
+
+
+def think_schema(min_items: int = 0) -> dict:
+    """프롬프트 v7 용 (실험 중, scripts/question_lab.py). 질문을 쓰기 전에 모델이 먼저 적는 칸 anchor, change 를 text 앞에 둔다.
+       모델은 적힌 순서대로 쓴다. 저장하지 않고 화면에도 안 나간다."""
+    import copy
+    s = copy.deepcopy(OUTPUT_SCHEMA)
+    item = s["properties"]["questions"]["items"]
+    p = item["properties"]
+    item["properties"] = {"type": p["type"], "axis": p["axis"], "anchor": {"type": "string"}, "change": {"type": "string"},
+                          "text": p["text"], "source": p["source"], "done_experience_id": p["done_experience_id"]}
+    item["required"] = list(item["properties"])
+    if min_items:              # 빈 목록을 문법으로 막아 보는 실험 (11/28). Anthropic 호환 API 는 0 과 1 만 받는다
+        s["properties"]["questions"]["minItems"] = min_items
+    return s

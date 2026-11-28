@@ -1,0 +1,124 @@
+"""질문 품질 실험 (이슈 #22). 같은 기록을 프롬프트 판 여러 개로 돌려 나란히 본다. DB 없이 돈다. 서비스 코드는 안 바뀐다.
+   cd server && python -m scripts.question_lab                  # 가짜 경험 전부 × 판 전부 → question_lab_<모델>.md
+   python -m scripts.question_lab f01 f07                       # 기록 골라서
+   python -m scripts.question_lab --only v6,free f07            # 판 골라서
+   python -m scripts.question_lab --dry                         # 모델 없이 배선만 확인 (가짜 응답)
+   .env 의 LLM_BASE_URL 이 모델을 가리켜야 한다 (GPU 서버의 Qwen, 또는 README 의 Anthropic 호환 주소).
+
+   판 (v6 말고는 먼저 적는 칸 anchor·change 가 있다)
+   - v6   : 11/28 까지 서비스가 쓰던 것
+   - pick : 먼저 적는 칸 + 사용자가 쓴 글 먼저 붙잡기
+   - frame: pick + 진행 중 활동의 문장 틀 고침. 11/28 Qwen 세 번 모두 7건 4개
+   - v7   : 서비스가 쓰는 것. frame 과 같은 규칙 + 출력 모양에 minItems 1. 11/28 Qwen 7건 4개
+   - v7raw: v7 에서 minItems 를 뺀 것. 11/28 에 7건 가운데 4건이 빈 목록 (대조용)
+   실패하면 모델이 돌려준 원문을 결과 파일에 같이 적는다.
+
+   11/28 에 알게 된 것: 이 프롬프트는 뜻과 무관한 글자(둘째 줄 메모, 절 제목의 괄호)에도 Qwen 이
+   빈 목록({"questions": []})으로 넘어간다. "빈 목록으로 답하지 않는다"는 지시는 효과 없고 minItems 1 은 막는다.
+   프롬프트를 고치면 여기서 v7 을 돌려 본 뒤에 올린다. 돌린 파일과 올리는 파일은 글자까지 같아야 한다
+
+   11/28 Qwen 실험 (기록 7개): 먼저 적는 칸은 효과 있음. 60자는 더 적어보기에만 효과. 문장 틀을 없앤 판은 거의 차이 없어 버렸다"""
+import asyncio, copy, json, os, pathlib, sys, time
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from app.config import settings
+from app.questions import filters, generate as gen, prompt
+from app.questions.schemas import ExperienceInput, OtherExperience, OUTPUT_SCHEMA, think_schema
+from app.llm.client import LLMConnectionError, LLMModelError
+
+VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 적는 칸이 있는가, 질문 최소 개수)
+    "v6": ("question_v6", 40, False, 0),
+    "pick": ("lab_question_pick", 40, True, 0),
+    "frame": ("lab_question_frame", 40, True, 0),
+    "v7": ("question_v7", 40, True, 1),
+    "v7raw": ("question_v7", 40, True, 0),
+}
+LABEL = {"write_more": "더 적어보기", "try_next": "해볼 것", "imagine": "상상해보기"}
+RAW: list[str] = []            # 이번 판에서 모델이 돌려준 원문 (실패했을 때 보고서에 싣는다)
+THOUGHTS: list[dict] = []     # 모델이 먼저 적은 칸 (화면에는 안 나간다. 보고서에만 싣는다)
+
+
+def use(name: str):
+    """이 판의 프롬프트·길이·출력 모양으로 바꿔 끼운다. 이 프로세스 안에서만."""
+    file, text_max, think, min_items = VARIANTS[name]
+    prompt.QUESTION_PROMPT = file
+    prompt.QUESTION_TEXT_MAX = filters.QUESTION_TEXT_MAX = text_max
+    gen.OUTPUT_SCHEMA = think_schema(min_items) if think else OUTPUT_SCHEMA
+
+
+_real_complete = gen.complete_json
+
+
+async def recording_complete(system, user, schema):
+    """실제 호출을 그대로 하고, 먼저 적은 칸만 따로 모아 둔다."""
+    res = await _real_complete(system, user, schema)
+    RAW.append(json.dumps(res.data, ensure_ascii=False))
+    THOUGHTS.extend(q for q in (res.data.get("questions") or []) if isinstance(q, dict) and q.get("change"))
+    return res
+
+
+async def dry_complete(system, user, schema):
+    """모델 없이 배선만 본다. 출력 모양에 맞는 가짜 질문 넷."""
+    from types import SimpleNamespace
+    extra = {"anchor": "가짜 대목", "change": "가짜 값"} if "anchor" in schema["properties"]["questions"]["items"]["properties"] else {}
+    qs = [{"type": t, "axis": a, **extra, "text": x, "source": "가짜", "done_experience_id": None} for t, a, x in (
+        ("try_next", "scale", "다음엔 두세 명이 하는 모임으로 해보면 어떨까요?"), ("try_next", "did", "다음엔 진행 대본도 직접 써보면 어떨까요?"),
+        ("imagine", "external", "만약 마감이 한 달 뒤였다면 어땠을까요?"), ("imagine", "situation", "만약 장소가 강당이었다면 어땠을까요?"))]
+    return SimpleNamespace(data={"questions": qs}, attempts=1, model="dry")
+
+
+async def main(ids: list[str], only: list[str], dry: bool):
+    gen.complete_json = dry_complete if dry else recording_complete
+    data = json.loads((pathlib.Path(__file__).parent / "fake_experiences.json").read_text(encoding="utf-8"))
+    exps = [ExperienceInput(**d) for d in data if not ids or d["id"] in ids]
+    others_all = [OtherExperience(id=d["id"], activity_name=d["activity_name"], genre=d["genre"], role=d["role"],
+                                  did_chips=d["did_chips"]) for d in data]
+    names = [n for n in VARIANTS if not only or n in only]
+    model = "dry" if dry else settings().llm_model
+    md = [f"# 질문 품질 실험 — 모델 `{model}`", "",
+          "같은 기록을 프롬프트 판마다 돌린 결과. 판 설명은 `scripts/question_lab.py` 맨 위.", ""]
+    stat = {n: {"q": 0, "plain": 0, "len": 0, "drop": 0, "sec": 0.0, "fail": 0} for n in names}
+    for e in exps:
+        others = [o for o in others_all if o.id != e.id]
+        md += [f"## [{e.id}] {e.activity_name} / {e.role}", "", "```", prompt.record_text(e), "```", ""]
+        for n in names:
+            use(n); THOUGHTS.clear(); RAW.clear()
+            t0 = time.time()
+            try:
+                out = await gen.generate(e, others)
+            except (LLMConnectionError, LLMModelError) as err:
+                stat[n]["fail"] += 1
+                md += [f"**{n}** — 실패: {type(err).__name__} {str(err)[:120]}"] + [f"  - 모델 원문 {i + 1}: `{r[:700]}`" for i, r in enumerate(RAW)] + [""]
+                print(f"[{e.id}] {n}: 실패 {type(err).__name__}"); continue
+            sec = time.time() - t0
+            st = stat[n]; st["sec"] += sec; st["drop"] += len(out.dropped)
+            md.append(f"**{n}** ({sec:.1f}초, 다시 묻기 {out.reasks}번)")
+            for q in out.questions:
+                st["q"] += 1
+                if q.type != "write_more":
+                    st["plain"] += 1; st["len"] += len(q.text)
+                md.append(f"- {LABEL[q.type]} · {q.text} ({len(q.text)}자) ← {q.source}")
+            for text, why in out.dropped:
+                md.append(f"- ~~{text}~~ (버림: {why})")
+            shown = {q.text for q in out.questions}
+            for t in THOUGHTS:
+                if t.get("text") in shown:
+                    md.append(f"  - 먼저 적은 것: 「{t.get('anchor')}」 → {t.get('change')}")
+            md.append("")
+            print(f"[{e.id}] {n}: {len(out.questions)}개, 버림 {len(out.dropped)}, {sec:.1f}초")
+    md += ["## 요약", "", "| 판 | 질문 수 | 해볼 것·상상해보기 평균 길이 | 버린 수 | 평균 시간 | 실패 |", "|---|---|---|---|---|---|"]
+    for n in names:
+        st = stat[n]; runs = max(1, len(exps) - st["fail"])
+        md.append(f"| {n} | {st['q']} | {st['len'] / max(1, st['plain']):.0f}자 | {st['drop']} | {st['sec'] / runs:.1f}초 | {st['fail']} |")
+    path = pathlib.Path(f"question_lab_{model.replace('/', '_')}.md")
+    path.write_text("\n".join(md) + "\n", encoding="utf-8")
+    print(f"\n결과: {path.resolve()}")
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    only = []
+    if "--only" in args:
+        i = args.index("--only"); only = args[i + 1].split(","); del args[i:i + 2]
+    dry = "--dry" in args
+    asyncio.run(main([a for a in args if not a.startswith("--")], only, dry))

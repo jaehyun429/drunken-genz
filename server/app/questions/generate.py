@@ -2,7 +2,7 @@
 11/14 기획 변경 (PRD 7.2·7.2.1, 기능명세서 14장): 모델은 후보를 내고, 4개를 고르는 건 compose 가 한다."""
 from __future__ import annotations
 import logging
-from .schemas import ExperienceInput, OtherExperience, GeneratedQuestion, GenerationOutcome, OUTPUT_SCHEMA, AXES_WRITE_MORE
+from .schemas import ExperienceInput, OtherExperience, GeneratedQuestion, GenerationOutcome, AXES_WRITE_MORE, think_schema
 from .prompt import build_messages, input_hash, reask_text
 from .source import fix_source
 from . import filters
@@ -10,6 +10,11 @@ from ..llm.client import complete_json, LLMConnectionError, LLMModelError
 from ..constants import QUESTION_COUNT, QUESTION_WRITE_MORE_MAX, QUESTION_CANDIDATE_MAX, QUESTION_REASK_MAX
 
 log = logging.getLogger("questions")
+
+# 프롬프트 v7: 질문마다 anchor·change 를 먼저 적게 하고 (저장은 안 한다), 빈 목록을 출력 모양에서 막는다 (minItems 1).
+# 11/28 Qwen: minItems 없이는 프롬프트의 글자 몇 개에 따라 7건 가운데 2~4건이 {"questions": []} 였다. 빼지 않는다.
+# v6 로 되돌리려면 schemas.OUTPUT_SCHEMA 를 쓴다
+OUTPUT_SCHEMA = think_schema(min_items=1)
 
 
 def compose(cands: list[GeneratedQuestion]) -> list[GeneratedQuestion]:

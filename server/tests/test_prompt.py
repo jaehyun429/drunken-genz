@@ -25,7 +25,7 @@ def test_hash_ignores_whitespace_only_changes():
 
 def test_build_messages_has_rules_and_others():
     version, system, user = build_messages(exp(), [OtherExperience(id="e2", activity_name="편의점", genre="알바", role="야간")])
-    assert version == "v5"
+    assert version == "v7"
     # v2~v4 에서 넣은 것 가운데 남긴 것 (11/14~15 Qwen 실측)
     assert "다른 사람이 다르게 행동했다면" in system and "그 활동에서 있을 수 없는 조건" in system
     assert '"-시-"를 넣지 않는다' in system
@@ -95,3 +95,12 @@ def test_reask_text_names_what_is_missing():
     assert "규칙에 맞는 질문이 1개뿐이다. try_next(해볼 것) 1개, imagine(상상해보기) 2개 더 필요하다." in t
     assert "- 버린 질문요? (조언·훈계)" in t or "버린 질문요?" in t and "조언·훈계" in t
     assert "write_more 는 내지 않는다" in t and "{" not in t
+
+
+def test_출력_모양은_빈_목록을_막는다():
+    """v7 은 Qwen 이 빈 목록으로 넘어가는 일이 잦아 출력 모양에서 막는다 (11/28). 먼저 적는 칸이 text 앞에 온다."""
+    from app.questions import generate
+    q = generate.OUTPUT_SCHEMA["properties"]["questions"]
+    assert q["minItems"] == 1
+    keys = list(q["items"]["properties"])
+    assert keys.index("anchor") < keys.index("change") < keys.index("text")

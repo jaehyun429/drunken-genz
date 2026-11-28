@@ -31,3 +31,4 @@ server/.pytest_cache/
 
 # 재현 전용 지침 (팀 루트 CLAUDE.md 와 겹치지 않게)
 CLAUDE.local.md
+server/question_lab_*.md
