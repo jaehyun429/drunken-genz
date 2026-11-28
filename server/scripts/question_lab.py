@@ -5,10 +5,12 @@
    python -m scripts.question_lab --dry                         # 모델 없이 배선만 확인 (가짜 응답)
    .env 의 LLM_BASE_URL 이 모델을 가리켜야 한다 (GPU 서버의 Qwen, 또는 README 의 Anthropic 호환 주소).
 
-   판
-   - v6     : 11/27 까지 서비스가 쓰던 것. 먼저 적는 칸 없음
-   - v7     : 지금 서비스가 쓰는 것. 질문을 쓰기 전에 '붙잡은 대목(anchor)'과 '바꿀 값(change)'을 먼저 적고, 사용자가 쓴 글을 먼저 붙잡는다. 40자
-   - v7long : v7 에 길이만 60자
+   판 (v6 말고는 전부 먼저 적는 칸 anchor·change 가 있다. 40자)
+   - v6   : 서비스가 쓰는 것. 먼저 적는 칸 없음
+   - pick : 11/28 에 7건 모두 4개가 나온 판 (대조용)
+   - v7   : pick 을 다듬은 것. 11/28 Qwen 에서 기록 7개 가운데 3~4개가 빈 목록으로 실패. 원인 모름
+   - must : v7 + "처음 만들 때는 빈 목록으로 답하지 않는다"
+   실패하면 모델이 돌려준 원문을 결과 파일에 같이 적는다.
 
    11/28 Qwen 실험 (기록 7개): 먼저 적는 칸은 효과 있음. 60자는 더 적어보기에만 효과. 문장 틀을 없앤 판은 거의 차이 없어 버렸다"""
 import asyncio, copy, json, os, pathlib, sys, time
@@ -16,25 +18,18 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from app.config import settings
 from app.questions import filters, generate as gen, prompt
-from app.questions.schemas import ExperienceInput, OtherExperience, OUTPUT_SCHEMA
+from app.questions.schemas import ExperienceInput, OtherExperience, OUTPUT_SCHEMA, think_schema
 from app.llm.client import LLMConnectionError, LLMModelError
 
 VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 적는 칸이 있는가)
     "v6": ("question_v6", 40, False),
+    "pick": ("lab_question_pick", 40, True),
     "v7": ("question_v7", 40, True),
-    "v7long": ("question_v7", 60, True),
+    "must": ("lab_question_must", 40, True),
 }
 LABEL = {"write_more": "더 적어보기", "try_next": "해볼 것", "imagine": "상상해보기"}
+RAW: list[str] = []            # 이번 판에서 모델이 돌려준 원문 (실패했을 때 보고서에 싣는다)
 THOUGHTS: list[dict] = []     # 모델이 먼저 적은 칸 (화면에는 안 나간다. 보고서에만 싣는다)
-
-
-def plain_schema() -> dict:
-    """v6 까지의 출력 모양 (먼저 적는 칸 없음)."""
-    s = copy.deepcopy(OUTPUT_SCHEMA)
-    item = s["properties"]["questions"]["items"]
-    for k in ("anchor", "change"):
-        item["properties"].pop(k); item["required"].remove(k)
-    return s
 
 
 def use(name: str):
@@ -42,7 +37,7 @@ def use(name: str):
     file, text_max, think = VARIANTS[name]
     prompt.QUESTION_PROMPT = file
     prompt.QUESTION_TEXT_MAX = filters.QUESTION_TEXT_MAX = text_max
-    gen.OUTPUT_SCHEMA = OUTPUT_SCHEMA if think else plain_schema()
+    gen.OUTPUT_SCHEMA = think_schema() if think else OUTPUT_SCHEMA
 
 
 _real_complete = gen.complete_json
@@ -51,6 +46,7 @@ _real_complete = gen.complete_json
 async def recording_complete(system, user, schema):
     """실제 호출을 그대로 하고, 먼저 적은 칸만 따로 모아 둔다."""
     res = await _real_complete(system, user, schema)
+    RAW.append(json.dumps(res.data, ensure_ascii=False))
     THOUGHTS.extend(q for q in (res.data.get("questions") or []) if isinstance(q, dict) and q.get("change"))
     return res
 
@@ -80,13 +76,13 @@ async def main(ids: list[str], only: list[str], dry: bool):
         others = [o for o in others_all if o.id != e.id]
         md += [f"## [{e.id}] {e.activity_name} / {e.role}", "", "```", prompt.record_text(e), "```", ""]
         for n in names:
-            use(n); THOUGHTS.clear()
+            use(n); THOUGHTS.clear(); RAW.clear()
             t0 = time.time()
             try:
                 out = await gen.generate(e, others)
             except (LLMConnectionError, LLMModelError) as err:
                 stat[n]["fail"] += 1
-                md += [f"**{n}** — 실패: {type(err).__name__} {str(err)[:120]}", ""]
+                md += [f"**{n}** — 실패: {type(err).__name__} {str(err)[:120]}"] + [f"  - 모델 원문 {i + 1}: `{r[:700]}`" for i, r in enumerate(RAW)] + [""]
                 print(f"[{e.id}] {n}: 실패 {type(err).__name__}"); continue
             sec = time.time() - t0
             st = stat[n]; st["sec"] += sec; st["drop"] += len(out.dropped)
