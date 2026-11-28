@@ -5,6 +5,8 @@
    python -m scripts.demo_analysis --prompt quote                # 실험 판 (app/llm/prompts/lab_analysis_quote.md). 근거 대목을 먼저 옮겨 적게 한다
    판 (11/28, 이슈 #22): v2 는 Qwen 에서 칩을 센 문장만 냈다 ("오프라인 방식으로 진행한 활동이 다수예요").
      quote = v2 + 직접 쓴 글부터 찾기 + 방식·규모 칩 하나만 센 문장 금지 + 출력에 quotes(옮겨 적은 대목)를 text 앞에
+     11/28 첫 실행: 직접 쓴 글에서 패턴이 나옴, 칩 하나 센 문장이 줄어듦. 다시 분석에서 '맞아요' 한 문장을 말만 바꿔 다시 냄
+     → 번호가 붙은 문장(p1, n1)도 quotes 를 적게 하고, 같은 대목에 기댄 새 문장은 코드가 버린다 (filters.same_quotes)
    .env 의 LLM_BASE_URL 이 GPU 서버를 가리켜야 함 (컨테이너 안에서 돌리거나 터널)."""
 import asyncio, json, sys, time, pathlib
 from collections import defaultdict

@@ -47,6 +47,30 @@ def alike(a: str, b: str) -> float:
     return similarity(_TEMPLATE.sub(" ", a), _TEMPLATE.sub(" ", b))
 
 
+_QUOTE_KEY = re.compile(r"^\[?(e\d+(?:\.l\d+)?)\]?\s*[:：]\s*")
+_QUOTE_JUNK = re.compile(r"[\s.,!?~\"'“”‘’「」]+")
+
+
+def quote_set(raw) -> set[tuple[str, str]]:
+    """모델이 옮겨 적은 대목들 ("e1: 옮긴 글") → {(기록 번호, 글)}. 띄어쓰기·문장부호는 뺀다. 번호가 없거나 글이 비면 버린다."""
+    out = set()
+    for q in raw if isinstance(raw, list) else []:
+        m = _QUOTE_KEY.match(q.strip()) if isinstance(q, str) else None
+        text = _QUOTE_JUNK.sub("", q.strip()[m.end():]) if m else ""
+        if text:
+            out.add((m.group(1), text))
+    return out
+
+
+def same_quotes(a: set[tuple[str, str]], b: set[tuple[str, str]]) -> bool:
+    """두 패턴이 같은 대목에 기대고 있는가. 같은 기록의 같은 글(한쪽이 다른 쪽을 품어도 같다)이 둘 중 적은 쪽의 절반 이상이면 같다고 본다.
+       문장을 바꿔 말해도 근거 대목은 그대로라서, 낱말 닮음(alike)이 못 잡는 겹침을 잡는다 (11/28 Qwen)."""
+    if not a or not b:
+        return False
+    hit = sum(1 for k, t in a if any(k == k2 and (t in t2 or t2 in t) for k2, t2 in b))
+    return hit * 2 >= min(len(a), len(b))
+
+
 def clean(text) -> str:
     """공백 정리. "~요"로 끝나고 마침표만 빠졌으면 붙인다."""
     t = _WS.sub(" ", text.strip()) if isinstance(text, str) else ""
@@ -67,10 +91,12 @@ def text_reason(text: str) -> str | None:
     return None
 
 
-def apply(raw: list, valid_keys: set[str], existing: list[str], blocked: list[str], need: int
-          ) -> tuple[list[Found], list[tuple[str, str]]]:
-    """LLM 출력 → (남긴 패턴, 버린 것과 이유). existing 은 지금 보여주는 패턴, blocked 는 "아니에요"를 받은 패턴."""
+def apply(raw: list, valid_keys: set[str], existing: list[str], blocked: list[str], need: int,
+          taken: list[tuple[set, str]] | None = None) -> tuple[list[Found], list[tuple[str, str]]]:
+    """LLM 출력 → (남긴 패턴, 버린 것과 이유). existing 은 지금 보여주는 패턴, blocked 는 "아니에요"를 받은 패턴.
+       taken 은 번호가 붙은 문장(p1, n1 …)의 옮겨 적은 대목과 그때 붙일 이유. 출력에 quotes 가 있을 때만 쓰인다."""
     kept: list[Found] = []
+    seen: list[tuple[set, str]] = list(taken or [])
     dropped: list[tuple[str, str]] = []
     for it in raw:
         if not isinstance(it, dict):
@@ -89,12 +115,16 @@ def apply(raw: list, valid_keys: set[str], existing: list[str], blocked: list[st
         if why is None and any(alike(text, x) >= ANALYSIS_DEDUPE_SIMILARITY
                                for x in existing + [k.text for k in kept]):
             why = DUPLICATE
+        quotes = quote_set(it.get("quotes"))
+        if why is None:
+            why = next((reason for qs, reason in seen if same_quotes(quotes, qs)), None)
         if why is not None:
             if text:
                 dropped.append((text, why))
             continue
         if len(kept) < need:
             kept.append(Found(text=text, keys=keys))
+            seen.append((quotes, DUPLICATE))
     return kept, dropped
 
 
