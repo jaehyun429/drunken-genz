@@ -47,7 +47,7 @@ OUTPUT_SCHEMA = {
 
 
 def quote_schema() -> dict:
-    """분석 프롬프트 실험용 (scripts/demo_analysis.py --prompt). 패턴마다 근거 대목을 옮겨 적는 quotes 를 text 앞에 둔다.
+    """프롬프트 v3 의 출력 모양 (11/28). 패턴마다 근거 대목을 옮겨 적는 quotes 를 text 앞에 둔다.
        모델이 문장을 쓰기 전에 기록의 글부터 짚게 하려는 것이다. quotes 는 저장하지 않는다."""
     import copy
     s = copy.deepcopy(OUTPUT_SCHEMA)
