@@ -5,16 +5,15 @@
    python -m scripts.question_lab --dry                         # 모델 없이 배선만 확인 (가짜 응답)
    .env 의 LLM_BASE_URL 이 모델을 가리켜야 한다 (GPU 서버의 Qwen, 또는 README 의 Anthropic 호환 주소).
 
-   판 (v6 말고는 전부 먼저 적는 칸 anchor·change 가 있다. 40자)
-   - v6   : 서비스가 쓰는 것. 먼저 적는 칸 없음
-   - pick : 11/28 에 7건 모두 4개가 나온 판 (대조용)
-   - v7   : pick 을 다듬은 것. 11/28 Qwen 에서 기록 7개 가운데 3~4개가 빈 목록으로 실패. 원인 모름
-   v7 이 pick 에 더한 문장을 하나씩만 넣은 판 (어느 문장이 빈 목록을 부르는지 찾는 용)
-   - frame: pick + 진행 중 활동의 문장 틀 고침 (두 문장)
-   - num  : pick + "기록에 적히지 않은 수치를 아는 것처럼 쓰지 않는다"
-   - head : pick + "보강글에 사람 수가 적혀 있어도 마찬가지다"
-   ("빈 목록으로 답하지 않는다"를 더한 must 판은 11/28 에 효과가 없어 버렸다)
+   판
+   - v6   : 11/28 까지 서비스가 쓰던 것. 먼저 적는 칸 없음
+   - pick : 먼저 적는 칸(anchor·change) + 사용자가 쓴 글 먼저 붙잡기. 11/28 Qwen 에서 네 번 모두 7건 4개
+   - v7   : 서비스가 쓰는 것. pick + 진행 중 활동의 문장 틀 고침. 11/28 Qwen 에서 두 번 모두 7건 4개
    실패하면 모델이 돌려준 원문을 결과 파일에 같이 적는다.
+
+   11/28 에 버린 것: v7 초안(pick 에 금지 문장 넷을 더함)은 기록 2~4개에서 모델이 빈 목록을 돌려줬다.
+   문장을 하나씩만 넣으면 실패가 없었다. 여럿이 겹칠 때만 난다. "빈 목록으로 답하지 않는다"는 효과 없음.
+   금지 문장을 더할 때는 하나씩 더하고 매번 여기서 돌려 본다.
 
    11/28 Qwen 실험 (기록 7개): 먼저 적는 칸은 효과 있음. 60자는 더 적어보기에만 효과. 문장 틀을 없앤 판은 거의 차이 없어 버렸다"""
 import asyncio, copy, json, os, pathlib, sys, time
@@ -29,9 +28,6 @@ VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 �
     "v6": ("question_v6", 40, False),
     "pick": ("lab_question_pick", 40, True),
     "v7": ("question_v7", 40, True),
-    "frame": ("lab_question_frame", 40, True),
-    "num": ("lab_question_num", 40, True),
-    "head": ("lab_question_head", 40, True),
 }
 LABEL = {"write_more": "더 적어보기", "try_next": "해볼 것", "imagine": "상상해보기"}
 RAW: list[str] = []            # 이번 판에서 모델이 돌려준 원문 (실패했을 때 보고서에 싣는다)
