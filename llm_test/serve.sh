@@ -11,6 +11,8 @@
 #   export HF_HOME=/NHNHOME/WORKSPACE/26moe002_H/jhjeong/hf     # 모델 캐시를 워크스페이스에 (컨테이너 복구 시 안 날아가게)
 #   pip install -U uv && uv venv ~/vllm-env && source ~/vllm-env/bin/activate
 #   uv pip install -U vllm --torch-backend=auto          # NGC 이미지의 torch와 섞이지 않게 venv에
+# 다른 서버에서: HF_HOME, PORT, UTIL(GPU 메모리 비율), TP(GPU 장 수) 를 환경변수로 바꾼다
+#   HF_HOME=~/hf TP=2 UTIL=0.85 PORT=18000 bash serve.sh qwen27
 # 띄운 뒤 확인: curl localhost:8000/v1/models
 set -euo pipefail
 
@@ -18,8 +20,9 @@ export HF_HOME="${HF_HOME:-/NHNHOME/WORKSPACE/26moe002_H/jhjeong/hf}"
 PORT="${PORT:-8000}"
 MAXLEN="${MAXLEN:-16384}"
 UTIL="${UTIL:-0.90}"
+TP="${TP:-1}"            # GPU 여러 장에 나눠 올릴 때 장 수. 48GB 두 장이면 TP=2 (Qwen3.8-27B 는 모델만 54GB 쯤)
 COMMON=(--host 0.0.0.0 --port "$PORT" --max-model-len "$MAXLEN" --gpu-memory-utilization "$UTIL"
-        --served-model-name local --enable-prefix-caching)
+        --served-model-name local --enable-prefix-caching --tensor-parallel-size "$TP")
 
 case "${1:-}" in
   qwen27)   MODEL="Qwen/Qwen3.8-27B" ;                      EXTRA=(--reasoning-parser qwen3) ;;
