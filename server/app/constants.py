@@ -30,7 +30,7 @@ QUESTION_DEDUPE_SIMILARITY = 0.5 # 문자 2-gram 자카드. 이상이면 겹치�
 QUESTION_REASK_MAX = 1           # 걸러낸 뒤 4개가 안 되거나 해볼 것·상상해보기 중 하나가 없으면 다시 묻는 횟수. 재생성 횟수에 안 셈
 QUESTION_REASK_PROMPT = "question_reask_v2"   # 다시 물을 때 사용자 메시지 뒤에 붙이는 글
 QUESTION_SOURCE_SNAP_SIMILARITY = 0.6  # 출처가 기록에 없는 글자면(오타 등) 이 이상 닮은 칩·문장으로 바꾼다. 문자 2-gram 자카드
-QUESTION_PROMPT = "question_v7"  # app/llm/prompts/<이름>.md
+QUESTION_PROMPT = "question_v6"  # app/llm/prompts/<이름>.md
 # 질문 끝맺음. 프롬프트의 문장 틀과 짝이다. PRD 7.2 문장 틀이 전부 "요?"로 끝난다 (v3 로 되돌리면 r"\?$").
 # 문장 틀 자체("다음엔 ~해보면 어떨까요?")는 프롬프트로만 맞춘다. 필터는 끝맺음만 본다
 QUESTION_ENDING = r"요\?$"

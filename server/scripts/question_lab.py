@@ -5,15 +5,18 @@
    python -m scripts.question_lab --dry                         # 모델 없이 배선만 확인 (가짜 응답)
    .env 의 LLM_BASE_URL 이 모델을 가리켜야 한다 (GPU 서버의 Qwen, 또는 README 의 Anthropic 호환 주소).
 
-   판
-   - v6   : 11/28 까지 서비스가 쓰던 것. 먼저 적는 칸 없음
-   - pick : 먼저 적는 칸(anchor·change) + 사용자가 쓴 글 먼저 붙잡기. 11/28 Qwen 에서 네 번 모두 7건 4개
-   - v7   : 서비스가 쓰는 것. pick + 진행 중 활동의 문장 틀 고침. 11/28 Qwen 에서 두 번 모두 7건 4개
+   판 (서비스는 v6. v6 말고는 먼저 적는 칸 anchor·change 가 있다)
+   - v6   : 서비스가 쓰는 것
+   - pick : 먼저 적는 칸 + 사용자가 쓴 글 먼저 붙잡기. 11/28 Qwen 에서 네 번 모두 7건 4개
+   - frame: pick + 진행 중 활동의 문장 틀 고침. 11/28 두 번 모두 7건 4개
+   - v7   : frame 에서 둘째 줄 "(실험용 …)" 을 빼고 절 제목의 "(실험)" 을 "(v7)" 로 바꾼 것뿐인데 7건 가운데 4건이 빈 목록
+   - v7h  : v7 에서 절 제목만 frame 과 같게 (둘째 줄과 제목 가운데 어느 쪽 탓인지 가르는 용)
+   - v7min: v7 그대로, 출력 모양에 minItems 1 (빈 목록을 문법으로 막기)
    실패하면 모델이 돌려준 원문을 결과 파일에 같이 적는다.
 
-   11/28 에 버린 것: v7 초안(pick 에 금지 문장 넷을 더함)은 기록 2~4개에서 모델이 빈 목록을 돌려줬다.
-   문장을 하나씩만 넣으면 실패가 없었다. 여럿이 겹칠 때만 난다. "빈 목록으로 답하지 않는다"는 효과 없음.
-   금지 문장을 더할 때는 하나씩 더하고 매번 여기서 돌려 본다.
+   11/28 에 알게 된 것: 이 프롬프트는 글자 몇 개에도 Qwen 이 빈 목록({"questions": []})으로 넘어간다.
+   금지 문장 넷을 더한 초안도 그랬다. "빈 목록으로 답하지 않는다"는 지시는 효과 없음.
+   실제 모델로 확인하기 전에 constants.QUESTION_PROMPT 를 바꾸지 않는다 (두 번 어겼다)
 
    11/28 Qwen 실험 (기록 7개): 먼저 적는 칸은 효과 있음. 60자는 더 적어보기에만 효과. 문장 틀을 없앤 판은 거의 차이 없어 버렸다"""
 import asyncio, copy, json, os, pathlib, sys, time
@@ -24,10 +27,13 @@ from app.questions import filters, generate as gen, prompt
 from app.questions.schemas import ExperienceInput, OtherExperience, OUTPUT_SCHEMA, think_schema
 from app.llm.client import LLMConnectionError, LLMModelError
 
-VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 적는 칸이 있는가)
-    "v6": ("question_v6", 40, False),
-    "pick": ("lab_question_pick", 40, True),
-    "v7": ("question_v7", 40, True),
+VARIANTS = {            # 이름: (프롬프트 파일, 길이 상한, 먼저 적는 칸이 있는가, 질문 최소 개수)
+    "v6": ("question_v6", 40, False, 0),
+    "pick": ("lab_question_pick", 40, True, 0),
+    "frame": ("lab_question_frame", 40, True, 0),
+    "v7": ("question_v7", 40, True, 0),
+    "v7h": ("lab_question_v7h", 40, True, 0),
+    "v7min": ("question_v7", 40, True, 1),
 }
 LABEL = {"write_more": "더 적어보기", "try_next": "해볼 것", "imagine": "상상해보기"}
 RAW: list[str] = []            # 이번 판에서 모델이 돌려준 원문 (실패했을 때 보고서에 싣는다)
@@ -36,10 +42,10 @@ THOUGHTS: list[dict] = []     # 모델이 먼저 적은 칸 (화면에는 안 �
 
 def use(name: str):
     """이 판의 프롬프트·길이·출력 모양으로 바꿔 끼운다. 이 프로세스 안에서만."""
-    file, text_max, think = VARIANTS[name]
+    file, text_max, think, min_items = VARIANTS[name]
     prompt.QUESTION_PROMPT = file
     prompt.QUESTION_TEXT_MAX = filters.QUESTION_TEXT_MAX = text_max
-    gen.OUTPUT_SCHEMA = think_schema() if think else OUTPUT_SCHEMA
+    gen.OUTPUT_SCHEMA = think_schema(min_items) if think else OUTPUT_SCHEMA
 
 
 _real_complete = gen.complete_json
